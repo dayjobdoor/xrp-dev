@@ -1,0 +1,23 @@
+{
+  "name": "xrp-dev-x402",
+  "private": true,
+  "version": "0.1.0-alpha.0",
+  "description": "Source of xrp-dev/x402: a Hono gate for x402 v2 exact payments on XRPL. No Express and no xrpl.js.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "hono": "4.13.13",
+    "vite-plus": "1.1.0"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "test": "vp test run"
+  }
+}

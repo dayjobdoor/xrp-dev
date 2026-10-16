@@ -1,0 +1,12 @@
+[tools]
+node = "24"
+bun = "1.4"
+
+[tasks.check]
+description = "Everything CI runs, in order"
+run = ["bun run typecheck", "bun run test", "bun run test:bun", "bun run check"]
+
+[tasks.dryrun]
+description = "What `npm publish` would upload (no login, no upload)"
+depends = ["check"]
+run = "cd packages/core && npm publish --dry-run --tag alpha"

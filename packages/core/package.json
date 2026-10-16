@@ -1,0 +1,59 @@
+{
+  "name": "xrp-dev",
+  "version": "0.1.0-alpha.0",
+  "description": "XRPL SDK for workerd, Bun, browsers and Node. The main entry holds no keys; wallets are xrp-dev/wallet and the MCP server is xrp-dev/mcp.",
+  "keywords": ["xrpl", "xrp", "ripple", "effect", "cloudflare-workers", "workerd", "edge", "codec", "ed25519", "secp256k1"],
+  "homepage": "https://github.com/dayjobdoor/xrp-dev/tree/main/packages/core#readme",
+  "bugs": "https://github.com/dayjobdoor/xrp-dev/issues",
+  "repository": { "type": "git", "url": "git+https://github.com/dayjobdoor/xrp-dev.git", "directory": "packages/core" },
+  "license": "MIT",
+  "author": "dayjobdoor <dayjobdoor@gmail.com>",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./crypto": { "types": "./dist/crypto.d.ts", "default": "./dist/crypto.js" },
+    "./address": { "types": "./dist/address.d.ts", "default": "./dist/address.js" },
+    "./codec": { "types": "./dist/codec.d.ts", "default": "./dist/codec.js" },
+    "./client": { "types": "./dist/client.d.ts", "default": "./dist/client.js" },
+    "./wallet": { "types": "./dist/wallet/index.d.ts", "default": "./dist/wallet/index.js" },
+    "./passkey": { "types": "./dist/wallet/passkey.d.ts", "default": "./dist/wallet/passkey.js" },
+    "./mcp": { "types": "./dist/mcp/index.d.ts", "default": "./dist/mcp/index.js" },
+    "./x402": { "types": "./dist/x402/index.d.ts", "default": "./dist/x402/index.js" },
+    "./package.json": "./package.json"
+  },
+  "bin": { "xrp-dev-mcp": "dist/mcp/mcp.js" },
+  "engines": { "node": ">=20.19" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.2",
+    "xrpl": "^4.0.0 || ^5.0.0",
+    "xrpl-connect": "^1.0.0",
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "hono": { "optional": true },
+    "xrpl": { "optional": true },
+    "xrpl-connect": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "effect": "^4.0.2",
+    "fast-check": "^4.10.2",
+    "workerd": "1.20260918.1",
+    "ripple-address-codec": "^5.0.1",
+    "ripple-binary-codec": "^2.11.0",
+    "ripple-keypairs": "^3.1.0",
+    "vite-plus": "1.1.0",
+    "xrpl": "^5.3.0"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "test": "vp test run"
+  }
+}

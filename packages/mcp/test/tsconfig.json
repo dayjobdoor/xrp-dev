@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "types": ["node", "bun"], "noUncheckedIndexedAccess": false, "exactOptionalPropertyTypes": false },
+  "include": ["**/*.ts", "../src/**/*.ts", "../bin/**/*.ts"]
+}

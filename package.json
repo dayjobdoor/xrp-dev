@@ -1,0 +1,23 @@
+{
+  "name": "xrp-dev-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/core", "packages/wallet", "packages/mcp", "packages/x402"],
+  "scripts": {
+    "build": "bun run --cwd packages/core build && bun run --cwd packages/wallet build && bun run --cwd packages/mcp build && bun run --cwd packages/x402 build && bun packages/core/scripts/assemble.ts",
+    "typecheck": "bun run build && for p in test packages/core packages/core/test packages/wallet packages/wallet/test packages/mcp packages/mcp/test packages/x402; do tsc --noEmit -p $p || exit 1; done",
+    "test": "bun run build && bun run --filter './packages/*' test",
+    "test:bun": "bun run build && bun test --timeout 60000 packages/core/test packages/wallet/test test",
+    "check": "bun scripts/check-packages.ts",
+    "prepare": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "26.6.5",
+    "typescript": "^7.0.2",
+    "vite-plus": "1.1.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0"
+  }
+}

@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>xrp-dev Design Document — Web Standard XRPL SDK and AI integration</title>
+<style>
+:root {
+  --bg: #0b0f14; --surface: #111820; --surface-2: #19202b;
+  --ink: #e8ecf1; --ink-muted: #8b95a5; --ink-faint: #4a5568;
+  --accent: #3ddc97; --accent-dim: #2ab87d; --accent-weak: rgba(61, 220, 151, 0.06);
+  --warn: #f6ad55; --danger: #fc8181; --info: #63b3ed;
+  --line: rgba(255,255,255,0.06); --line-strong: rgba(255,255,255,0.12);
+  --radius: 10px; --space: clamp(1rem, 0.8rem + 1vw, 1.5rem);
+  --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; }
+html { scroll-behavior: smooth; }
+body { font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.75; }
+header { padding: calc(var(--space) * 3) var(--space); border-bottom: 1px solid var(--line); }
+header > div, main { max-width: 900px; margin: 0 auto; }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-dim); }
+h1 { font-size: clamp(2rem, 1.5rem + 2vw, 3rem); line-height: 1.15; margin: 0.4rem 0 0.8rem; }
+h1 span { color: var(--accent); }
+.lead { color: var(--ink-muted); max-width: 680px; }
+main { padding: calc(var(--space) * 2) var(--space); }
+section { margin-bottom: calc(var(--space) * 2.5); }
+h2 { font-size: 1.6rem; padding-bottom: 0.3rem; margin-bottom: 0.8rem; border-bottom: 1px solid var(--line-strong); }
+h2 .num { font-family: var(--mono); font-size: 0.9rem; color: var(--accent-dim); margin-right: 0.5rem; }
+h3 { font-size: 1.2rem; margin: 1.4rem 0 0.5rem; }
+h4 { font-size: 1rem; margin: 1rem 0 0.4rem; color: var(--ink-muted); }
+p, li { color: var(--ink-muted); }
+p { margin-bottom: 0.7rem; }
+strong { color: var(--ink); }
+ul, ol { margin: 0.5rem 0 0.8rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.3rem; }
+code { font-family: var(--mono); font-size: 0.9em; color: var(--info); }
+pre { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem; overflow-x: auto; font-family: var(--mono); font-size: 0.85rem; line-height: 1.6; margin: 0.8rem 0; }
+pre code { color: inherit; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 0.8rem 0; background: var(--surface); border: 1px solid var(--line); }
+th, td { padding: 0.55rem 0.8rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+th { background: var(--surface-2); color: var(--accent); font-family: var(--mono); font-weight: 500; font-size: 0.8rem; }
+td code { word-break: break-all; }
+nav { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space); margin-bottom: calc(var(--space) * 2); }
+nav ul { list-style: none; padding: 0; columns: 2; }
+nav a { color: var(--ink-muted); text-decoration: none; font-size: 0.9rem; }
+nav a:hover { color: var(--accent); }
+.callout { background: var(--accent-weak); border-left: 3px solid var(--accent); padding: 0.7rem 0.9rem; margin: 0.8rem 0; font-size: 0.92rem; }
+.callout.warn { background: rgba(246, 173, 85, 0.06); border-left-color: var(--warn); }
+.callout.danger { background: rgba(252, 129, 129, 0.06); border-left-color: var(--danger); }
+.tag { font-family: var(--mono); font-size: 0.75rem; padding: 0.05rem 0.4rem; border-radius: 4px; border: 1px solid var(--line-strong); color: var(--warn); }
+footer { border-top: 1px solid var(--line); padding: var(--space); text-align: center; color: var(--ink-faint); font-size: 0.85rem; }
+@media print {
+  body { background: #fff; color: #1a202c; }
+  pre, table, nav, .callout { background: #f7fafc; border-color: #e2e8f0; }
+  th { background: #edf2f7; color: #2d3748; }
+}
+@page { size: A4; margin: 16mm; }
+@media (max-width: 640px) { nav ul { columns: 1; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="eyebrow">xrp-dev / Design Document / rev. 2026-10-11</div>
+    <h1>xrp-dev <span>//</span> Web Standard XRPL SDK</h1>
+    <p class="lead">
+      An XRPL SDK with no Node.js dependency, developed as a monorepo in this repository (<code>codemode</code>).
+      Besides the library itself, the same repository provides the entry points used from AI (Code Mode connector, MCP, Skills) and a browser app that signs with a Passkey.
+      This document covers the API, dependencies, and tests of each package.
+      Published as one npm package, <code>xrp-dev</code> (<code>xrp-dev/wallet</code>, <code>xrp-dev/passkey</code>, <code>xrp-dev/mcp</code>). The three-name layout below is the source layout, not three publishes.
+    </p>
+  </div>
+</header>
+
+<main>
+
+<nav aria-label="Table of contents">
+  <ul>
+    <li><a href="#status">00 Status of this revision</a></li>
+    <li><a href="#goals">01 Goals</a></li>
+    <li><a href="#constraints">02 Premises and constraints</a></li>
+    <li><a href="#layout">03 Repository layout</a></li>
+    <li><a href="#packages">04 Library packages</a></li>
+    <li><a href="#ai">05 AI integration and the app</a></li>
+    <li><a href="#spec">06 Crypto and codec specification</a></li>
+    <li><a href="#tests">07 Test design</a></li>
+    <li><a href="#npm">08 npm and build configuration</a></li>
+    <li><a href="#roadmap">09 Roadmap</a></li>
+    <li><a href="#decisions">10 Decisions</a></li>
+    <li><a href="#lessons">11 Lessons from xrpl.js / xrpl-connect</a></li>
+  </ul>
+</nav>
+
+<!-- 00 -->
+<section id="status">
+  <h2><span class="num">00</span>Status of this revision</h2>
+  <p>Record of the design and decisions (<a href="#decisions">section 10</a>). Change history is in <a href="../../CHANGELOG.md#xrp-dev-history-imported">CHANGELOG.md</a> (xrp-dev history section).</p>
+  <div class="callout warn">
+    <strong>Historical for the Workers.</strong> The Workers <code>xrpl</code> and <code>agent</code> (<code>codemode/apps/</code>, <code>codemode/infra/</code>), their Code Mode connector and the browser app were retired; their <code>submit</code> and codec tools moved to the app's <code>/mcp</code> (<a href="README.md">README.md</a>). The package sections still hold.
+    Prohibitions are in the <code>@xrp-dev</code> packages section of the root <code>AGENTS.md</code>. This document is the design; if it disagrees with them, follow them. The packages moved from <code>codemode/packages/</code> to the root <code>packages/</code>; paths below are current.
+    <span class="tag">needs verification</span> marks an assumption that has not been run and confirmed yet. Phases 0–4 are implemented (2026-10-11). Points that changed in implementation are noted in each section.
+  </div>
+</section>
+
+<!-- 01 -->
+<section id="goals">
+  <h2><span class="num">01</span>Goals</h2>
+  <table>
+    <tr><th>Horizon</th><th>Goal</th><th>Done when</th></tr>
+    <tr><td>Final</td><td>An XRPL SDK that runs on Web Standard APIs only. The same code runs on Bun, Cloudflare Workers (workerd), and the browser.</td><td>All packages pass <a href="#tests">P01–P04</a>. The only external runtime npm dependency is <code>effect</code> (D3).</td></tr>
+    <tr><td>Short term</td><td>Feature parity with xrpl.js: serialization, signing, and submit preparation for the main transactions, addresses, seeds. Documentation is also in place.</td><td>Differential tests against xrpl.js fixtures all match (<a href="#tests">W-*</a>).</td></tr>
+    <tr><td>Mid term</td><td>AI integration (Code Mode, MCP, Skills) and a Passkey wallet (xrpl-connect adapter).</td><td><a href="#tests">C-*, M-*, S-*, K-*, A-*</a> pass.</td></tr>
+  </table>
+  <p>Target transactions (short term): <code>Payment</code>, <code>AccountSet</code>, <code>TrustSet</code>, <code>OfferCreate</code>, <code>OfferCancel</code>, <code>SignerListSet</code>.
+  The codec is driven by definition data, so adding a type only requires updating the definitions (<a href="#spec">section 06</a>).</p>
+</section>
+
+<!-- 02 -->
+<section id="constraints">
+  <h2><span class="num">02</span>Premises and constraints</h2>
+
+  <h3>Definition of "Node-independent"</h3>
+  <table>
+    <tr><th>Category</th><th>Content</th></tr>
+    <tr><td>Allowed</td><td>ES2022, <code>Uint8Array</code> / <code>DataView</code>, <code>TextEncoder</code> / <code>TextDecoder</code>, <code>fetch</code>, <code>WebSocket</code>, <code>crypto.subtle</code> / <code>crypto.getRandomValues</code>, <code>AbortSignal</code>, <code>ReadableStream</code>, <code>BigInt</code></td></tr>
+    <tr><td>Not used</td><td>Imports of <code>node:*</code>, <code>Buffer</code>, <code>process</code>, <code>require</code>, <code>__dirname</code>, <code>ws</code>, <code>events</code>, conditional exports (<code>node</code> / <code>browser</code> branches)</td></tr>
+    <tr><td>Exceptions</td><td><code>codemode/apps/agent/src/xrp-connector.ts</code> (the Code Mode connector) is workerd-only (it uses <code>cloudflare:workers</code>). The stdio launcher of <code>xrp-dev-mcp</code> is Bun-only. The library itself (<code>xrp-dev</code>, <code>xrp-dev-wallet</code>, <code>xrp-dev-wallet/passkey</code>) has no exceptions.</td></tr>
+    <tr><td>How it is checked</td><td>Mechanically, by types (<code>types: []</code>) and by scanning the bundle (<a href="#tests">P01, P02</a>).</td></tr>
+  </table>
+
+  <h3>Constraints from the repository's existing rules (<code>AGENTS.md</code>)</h3>
+  <table>
+    <tr><th>Rule</th><th>Handling in this design</th></tr>
+    <tr><td>Do not create endpoints that accept or return a private key or seed</td><td>Key handling stays inside the library API and the browser app. Neither the MCP tools nor the Code Mode connector have arguments that take or return a seed, private key, or entropy (checked by <a href="#tests">C03, M03</a>).</td></tr>
+    <tr><td>Do not add write routes to <code>xrpl</code></td><td><code>xrpl</code> stays read-only. Signing happens only on the user's device (the browser app, or the user's own code). Submission is limited to one agent MCP tool, <code>submit</code> (D1; conditions in <a href="#ai">section 05</a>).</td></tr>
+    <tr><td>Do not change the Alchemy logical IDs, the stack name <code>codemode</code>, or production physical names</td><td>When moving to <code>apps/</code>, change only the <code>main</code> path in <code>infra/cloudflare.ts</code>. Deploy only after confirming with <code>alchemy plan</code> that there are updates only (no replaces).</td></tr>
+  </table>
+</section>
+
+<!-- 03 -->
+<section id="layout">
+  <h2><span class="num">03</span>Repository layout</h2>
+<pre><code>codemode/                      # the Alchemy stack name is codemode
+├── apps/
+│   ├── dev/                   # Worker xrpl: private read-only XRPL REST API (src/) and the Passkey browser app (app/; static assets)
+│   └── agent/                 # Worker agent: Pi Durable agent + MCP + Code Mode connector (src/xrp-connector.ts)
+├── packages/
+│   ├── core/                  # xrp-dev: codec / crypto / address / client (holds no keys)
+│   ├── wallet/                # xrp-dev-wallet: seed, keys, Secret Numbers, derivation from PRF, signing (the only package that holds keys)
+│   │                          #   subpath /passkey: xrpl-connect WalletAdapter
+│   └── mcp/                   # xrp-dev-mcp: one tool registry. MCP and Bun stdio launcher
+├── skills/
+│   └── xrpl-*/SKILL.md        # Agent Skills (read from Claude Code, Pi, etc.)
+├── infra/                     # Alchemy (alchemy.ts / cloudflare.ts)
+├── test/                      # Worker tests and production e2e
+├── tsconfig.base.json
+└── package.json               # "workspaces": ["apps/*", "packages/*"]</code></pre>
+
+  <h3>Package dependencies</h3>
+<pre><code>xrp-dev        ← effect, @noble/curves, @noble/hashes
+xrp-dev-wallet     ← xrp-dev, effect              (/passkey uses only the types of xrpl-connect and xrpl, via import type. Both are optional peers and are not loaded at runtime)
+xrp-dev-mcp        ← xrp-dev                   (MCP uses its own JSON-RPC. The SDK is not used. No dependency on wallet)
+apps/dev       ← xrp-dev-wallet, xrp-dev (Worker xrpl. The API's src/ does not depend on the SDK and uses its own Rippled.ts. It could be replaced with xrp-dev/client, but that is not started. The browser app's app/ uses wallet (including /passkey) and core)
+apps/agent    ← xrp-dev-mcp, xrp-dev (xrp-dev-wallet only in tests)</code></pre>
+
+  <ul>
+    <li><strong>Deferred:</strong> <code>@xrp-dev/sdk</code> (an integrating facade), <code>tools/ts-config</code>, <code>tools/eslint-config</code>, <code>apps/docs</code>, <code>apps/sandbox</code>. Add them once there are users.
+      A single <code>tsconfig.base.json</code> is enough for shared configuration. The Node-independence check is done by tests (P01, P02), not ESLint.</li>
+    <li><strong>Do not create empty packages in advance.</strong> Create the directory when the first code goes in.</li>
+  </ul>
+</section>
+
+<!-- 04 -->
+<section id="packages">
+  <h2><span class="num">04</span>Library packages</h2>
+
+  <h3>Common policy</h3>
+  <ul>
+    <li><strong>Use Effect 4 (D3).</strong> Fallible operations return <code>Effect.Effect&lt;A, E&gt;</code>, and errors are per-domain <code>Data.TaggedError</code>s (<code>CodecError</code>, <code>CryptoError</code>, <code>AddressError</code>, <code>ClientError</code>, <code>WalletError</code>). They are subdivided by <code>reason</code> (e.g. <code>"unknown_field"</code>). Pure functions that cannot fail (such as <code>bytesToHex</code>) return values.</li>
+    <li><strong>Hashing uses <code>crypto.subtle</code> (async),</strong> so anything that includes hashing (signing, address derivation, transaction hashing) is async inside Effect. The codec itself does not use hashing.</li>
+    <li><strong>Call <code>Effect.runPromise</code> only at boundaries that need a Promise</strong> (the xrpl-connect adapter, MCP handlers).</li>
+    <li><strong>Byte input and output use <code>Uint8Array</code></strong>, and hex is an uppercase string. <code>Buffer</code> is not used.</li>
+    <li><strong>Objects that hold key material</strong> do not expose their contents through <code>toJSON()</code> or <code>toString()</code>. <code>destroy()</code> fills the bytes with 0.</li>
+  </ul>
+
+  <h3><code>xrp-dev</code> — core</h3>
+  <table>
+    <tr><th>Subpath</th><th>Main API</th><th>Notes</th></tr>
+    <tr><td><code>xrp-dev/crypto</code></td><td><code>sha256</code>, <code>sha512</code>, <code>sha512Half</code>, <code>ripemd160</code>, <code>base58Encode</code> / <code>base58Decode</code> / <code>base58CheckEncode</code> / <code>base58CheckDecode</code>, <code>bytesToHex</code> / <code>hexToBytes</code>, <code>secp256k1</code> (<code>getPublicKey</code>, <code>sign</code>, <code>verify</code>), <code>ed25519</code> (same)</td><td>RIPEMD-160 and the elliptic curves are <code>@noble/hashes</code> / <code>@noble/curves</code> (D4, <a href="#spec">section 06</a>); SHA-2 is Web Crypto.</td></tr>
+    <tr><td><code>xrp-dev/address</code></td><td><code>deriveAccountId(publicKey)</code>, <code>encodeAccountId</code> / <code>decodeAccountId</code>, <code>isValidClassicAddress</code>, <code>classicToXAddress</code> / <code>xAddressToClassic</code></td><td>Supports X-address (XLS-5d).</td></tr>
+    <tr><td><code>xrp-dev/codec</code></td><td><code>encode(tx)</code>, <code>decode(hex)</code>, <code>encodeForSigning(tx)</code>, <code>encodeForMultisigning(tx, account)</code>, <code>hashTransaction(blob)</code>, <code>definitions</code></td><td>Driven by the definitions (a snapshot of <code>server_definitions</code>). Types are generated from these definitions.</td></tr>
+    <tr><td><code>xrp-dev/client</code></td><td><code>createRpcClient({ url, fetch?, timeoutMs?, maxBodyBytes? })</code>, <code>createWsClient({ url, WebSocket? })</code>, <code>autofill(client, tx)</code>, <code>submit(client, blob)</code></td><td>Returns <code>Effect.Effect&lt;A, ClientError&gt;</code>. Carries over the behavior of <code>Rippled.ts</code> in the current <code>apps/xrpl</code> (10-second deadline, 5 MB limit, errors inside a 200 response become typed errors). <code>submit</code> accepts only signed blobs.</td></tr>
+    <tr><td>Root (<code>xrp-dev</code>)</td><td><code>verifyTransaction(blob)</code>, <code>signerMatchesAccount</code>, <code>NETWORKS</code>, <code>PUBLIC_RPC_URLS</code>, <code>publicKeyToAddress</code></td><td>Added on 2026-10-11 (<code>verifyTransaction</code> was moved from wallet). It holds no keys, so servers (such as the MCP <code>submit</code>) can import it. <code>deriveAddress</code> rejects anything that is not a public key (not 33 bytes, or neither an ED prefix nor a valid compressed secp256k1 point).</td></tr>
+  </table>
+<pre><code>// Public API of xrp-dev (excerpt)
+import { Data, Effect } from "effect";
+export class CodecError extends Data.TaggedError("CodecError")&lt;{ reason: "unknown_field" | "bad_type" | "out_of_range" | "bad_length"; field?: string }&gt; {}
+export type Hex = string;
+export const encode: (tx: TxJson) =&gt; Effect.Effect&lt;Hex, CodecError&gt;;
+export const decode: (blob: Hex) =&gt; Effect.Effect&lt;TxJson, CodecError&gt;;
+export const encodeForSigning: (tx: TxJson) =&gt; Effect.Effect&lt;Uint8Array, CodecError&gt;;   // "STX\0" + serialization without the signing fields
+export const hashTransaction: (blob: Hex) =&gt; Effect.Effect&lt;Hex, CodecError&gt;;             // sha512Half("TXN\0" + blob)
+export const deriveAccountId: (publicKey: Uint8Array) =&gt; Effect.Effect&lt;Uint8Array&gt;;       // ripemd160(sha256(pk))
+export interface RpcClient { request&lt;T&gt;(method: string, params?: object): Effect.Effect&lt;T, ClientError&gt;; }</code></pre>
+
+  <h3><code>xrp-dev-wallet</code> — keys and signing</h3>
+  <table>
+    <tr><th>Format</th><th>Method</th><th>API</th></tr>
+    <tr><td>Family Seed (<code>s…</code>)</td><td>secp256k1. Derives root and intermediate (<a href="#spec">section 06</a>)</td><td><code>Wallet.fromSeed(seed)</code></td></tr>
+    <tr><td>Ed25519 Seed (<code>sEd…</code>)</td><td>private key = sha512Half(entropy)</td><td><code>Wallet.fromSeed(seed)</code></td></tr>
+    <tr><td>Secret Numbers (XLS-12)</td><td>Split 16 bytes of entropy into 8 blocks of 2 bytes each, and append a 1-digit checksum to each block</td><td><code>Wallet.fromSecretNumbers(groups)</code>, <code>toSecretNumbers(entropy)</code></td></tr>
+    <tr><td>Passkey PRF</td><td>Run the PRF output (32 bytes) through HKDF-SHA256 to get 16 bytes of entropy, and make it a Family Seed</td><td><code>Wallet.fromPrf(prfOutput, { algorithm })</code></td></tr>
+  </table>
+<pre><code>export class Wallet {
+  static fromSeed(seed: string): Effect.Effect&lt;Wallet, WalletError&gt;;
+  static fromEntropy(entropy: Uint8Array, opts?: { algorithm?: "secp256k1" | "ed25519" }): Effect.Effect&lt;Wallet, WalletError&gt;;
+  static fromSecretNumbers(input: string | string[]): Effect.Effect&lt;Wallet, WalletError&gt;;   // reason: "bad_checksum" (with position), etc.
+  static fromPrf(prf: Uint8Array, opts?: { salt?: Uint8Array; algorithm?: "secp256k1" | "ed25519" }): Effect.Effect&lt;Wallet, WalletError&gt;;
+  readonly address: string;
+  readonly publicKey: Hex;
+  sign(tx: TxJson, opts?: { multisign?: boolean }): Effect.Effect&lt;{ tx_blob: Hex; hash: Hex }, WalletError | CodecError&gt;;
+  signMessage(message: Uint8Array): Effect.Effect&lt;Hex, WalletError&gt;;
+  destroy(): void;                      // fills the private key bytes with 0
+  toJSON(): { address: string; publicKey: Hex };   // does not expose secrets
+}
+// verifyTransaction moved to xrp-dev (2026-10-11, so that servers do not import the key package)</code></pre>
+  <div class="callout warn">
+    <strong>Caveats when deriving keys from a PRF.</strong>
+    <ul>
+      <li>The key exists temporarily in JavaScript memory.</li>
+      <li>It cannot be used with authenticators or browsers that do not support PRF.</li>
+      <li>If the same Passkey is lost, the same address can never be restored. Therefore a Secret Numbers backup is shown at creation (an app requirement).</li>
+      <li>The HKDF salt and info are fixed to <code>"xrp-dev/prf/v1"</code>, with the version included in the name.</li>
+    </ul>
+  </div>
+  <div class="callout warn">
+    <strong>Signing refusal (<code>signingRefusal</code>).</strong> On 2026-10-11 <code>xrp-dev-wallet</code> exports <code>signingRefusal</code>. It refuses to sign <code>Batch</code>, <code>SetRegularKey</code>, <code>SignerListSet</code>, <code>DelegateSet</code>, and <code>AccountSet</code> with <code>asfDisableMaster</code>. It is enforced in <code>PasskeyAdapter.sign</code> / <code>signAndSubmit</code>, and the app's confirmation screen uses the same function.
+  </div>
+
+  <h3><code>xrp-dev-wallet/passkey</code> — xrpl-connect adapter</h3>
+  <p>Until 2026-10-11 this was a separate package, <code>@xrp-dev/passkey</code>; it is now a subpath of <code>xrp-dev-wallet</code> (D7).</p>
+  <p><code>WalletAdapter</code> of xrpl-connect 1.0.0 (quoted from the actual type definitions):</p>
+<pre><code>interface WalletAdapter {
+  readonly id: WalletIdentifier; readonly name: string; readonly icon?: string; readonly url?: string;
+  readonly capabilities?: WalletCapabilities;
+  isAvailable(): Promise&lt;boolean&gt;;
+  connect(options?: ConnectOptions): Promise&lt;AccountInfo&gt;;      // { address, publicKey?, network }
+  disconnect(): Promise&lt;void&gt;;
+  getAccount(): Promise&lt;AccountInfo | null&gt;;
+  getNetwork(): Promise&lt;NetworkInfo&gt;;
+  sign(transaction: Transaction): Promise&lt;SignedTransaction&gt;;     // { hash, tx_blob?, … }
+  signAndSubmit(transaction: Transaction): Promise&lt;SubmittedTransaction&gt;;
+  signMessage(message: string | Uint8Array): Promise&lt;SignedMessage&gt;;
+  on?(event: WalletAdapterEvent, cb: (data: unknown) =&gt; void): void;
+  off?(event: WalletAdapterEvent, cb: (data: unknown) =&gt; void): void;
+}</code></pre>
+  <ul>
+    <li><strong>No dependency on xrpl-connect.</strong> xrpl-connect has <code>xrpl</code> (xrpl.js) as a peer dependency, and its dependencies also include <code>@types/node</code>. Even <code>import type</code> pulls <code>@types/node</code> into the types, so only the needed types (such as <code>AccountInfo</code>) are declared inside the package, and <code>satisfies WalletAdapter</code> is checked in a test (devDependency) (K01).</li>
+    <li><strong>Implementation of each method:</strong>
+      <ul>
+        <li><code>connect()</code>: calls <code>navigator.credentials.get()</code> with PRF and creates the key with <code>Wallet.fromPrf</code>.</li>
+        <li><code>sign()</code>: calls <code>Wallet.sign</code>.</li>
+        <li><code>signAndSubmit()</code>: submits with <code>submit</code> from <code>xrp-dev/client</code>. The destination is a public node directly from the browser, not via this repository's server. The Effect is converted to a Promise with <code>Effect.runPromise</code> and returned.</li>
+        <li><code>disconnect()</code>: calls <code>Wallet.destroy()</code>.</li>
+      </ul>
+    </li>
+    <li><strong>Prior art:</strong> xrpl-connect already has an adapter for GHOSTSIG, a hosted Passkey wallet. This design differs in that it creates the key on the device from the PRF, without going through a host.</li>
+    <li><strong>Support for XLS-83d:</strong> ledger-native Passkey signing will be supported after the specification becomes Final. An internal <code>Signer</code> interface is provided so that the signing method can be swapped.</li>
+  </ul>
+</section>
+
+<!-- 05 -->
+<section id="ai">
+  <h2><span class="num">05</span>AI integration and the app</h2>
+  <p>There are four entry points used from AI, and all of them call the same <code>xrp-dev</code> functions. The following table fixes at which entry points signing and submission are possible.</p>
+  <table>
+    <tr><th>Entry point</th><th>Runtime</th><th>Read / compute</th><th>Pre-signing preparation</th><th>Signing</th><th>Submission</th></tr>
+    <tr><td><code>codemode/apps/agent/src/xrp-connector.ts</code></td><td>workerd (the agent's Code Mode)</td><td>yes</td><td>yes</td><td>no</td><td>no</td></tr>
+    <tr><td><code>xrp-dev-mcp</code> (remote)</td><td>workerd (the agent's <code>/mcp</code>)</td><td>yes</td><td>yes</td><td>no</td><td>yes, <code>submit</code> only (conditions below)</td></tr>
+    <tr><td><code>xrp-dev-mcp</code> (local)</td><td>Bun stdio</td><td>yes</td><td>yes</td><td>no</td><td>no</td></tr>
+    <tr><td>Skills</td><td>Agent side (Claude Code, Pi, etc.)</td><td>procedure</td><td>procedure</td><td>in the user's code</td><td>in the user's code</td></tr>
+    <tr><td>Browser app (<code>codemode/apps/dev/app</code>)</td><td>Browser</td><td>yes</td><td>yes</td><td>yes (Passkey, operated by a person)</td><td>yes (a person approves on the confirmation screen)</td></tr>
+  </table>
+  <div class="callout danger">
+    <strong>Do not create any path through which the model sees keys.</strong>
+    No entry point has a tool that takes a seed, private key, entropy, or PRF output as an argument or return value.
+    Signing happens only on the user's device (a browser operated by a person, or the user's own code).
+    The server receives only a signed <code>tx_blob</code>, and submission is limited to one authenticated <code>submit</code>.
+  </div>
+
+  <h3><code>codemode/apps/agent/src/xrp-connector.ts</code> — Code Mode connector</h3>
+  <ul>
+    <li><code>XrpConnector extends CodemodeConnector</code> (the base class of <code>@cloudflare/codemode</code> 0.5.3). Inside the sandbox it can be called like <code>xrp.decode(...)</code>. The name <code>codemode</code> is reserved by the SDK.</li>
+    <li>Tools: <code>encode</code>, <code>decode</code>, <code>hash_transaction</code>, <code>derive_address</code> (from a public key), <code>classic_to_x_address</code>, <code>x_address_to_classic</code>, <code>is_valid_address</code>, <code>prepare_payment</code>, <code>prepare_trust_set</code>, <code>prepare_offer_create</code>.
+      <code>prepare_*</code> runs autofill through the existing <code>XRPL</code> Service Binding and returns only <code>{ tx_json }</code> (<code>signingData</code> / <code>signingHash</code> were removed on 2026-10-11: they were computed without <code>SigningPubKey</code>, so they did not match what the signer actually signs). It contains no signature. Once the signer inserts the key, the signing target is determined.</li>
+    <li>The connector is built from the MCP registry and validates arguments. Argument names are the same as MCP (<code>encode{tx_json}</code>, <code>decode{tx_blob}</code>, <code>hash_transaction{tx_blob}</code>). <code>serviceBindingClient</code> in <code>codemode/apps/agent/src/binding.ts</code> consolidates the Service Binding's <code>RpcClient</code> into one.</li>
+    <li>Pure-computation tools use <code>replay: "reexecute"</code>, so that results are not kept in the durable log. <code>submit</code> is not provided: Pi tools have no approval mechanism, and if Code Mode stops waiting for approval (<code>paused</code>) there is no path to resume it.</li>
+    <li>There is also a way to run the computation directly inside the sandbox. The <code>modules</code> of <code>DynamicWorkerExecutor</code> (<code>Record&lt;specifier, source&gt;</code>) are passed as-is to the Worker Loader, so a bundle can be placed there (confirmed in the 0.5.3 source). User code is wrapped inside a function, so only dynamic <code>import()</code> appears to be usable. Execution on workerd has not been verified <span class="tag">needs verification</span></li>
+    <li>The existing <code>agent</code> can pick it up just by setting <code>connectors: [XrplConnector, XrpConnector]</code>. It also becomes usable from the MCP <code>execute</code> tool.</li>
+  </ul>
+
+  <h3><code>xrp-dev-mcp</code> — MCP</h3>
+  <ul>
+    <li>Tool definitions (name, description, JSON Schema, <code>annotations</code>, handler) are gathered into one registry. All tools except <code>submit</code> have <code>readOnlyHint: true</code>. There are two transports:
+      <ul>
+        <li>Remote: add the tools to the existing agent <code>POST /mcp</code> (hand-written JSON-RPC).</li>
+        <li>Local: start a stdio server with <code>bun packages/mcp/bin/mcp.ts --network testnet</code> (run from the repo root; after npm publication, <code>bunx xrp-dev-mcp</code>). Bun-only.</li>
+      </ul>
+    </li>
+    <li>Tools: the same set as Code Mode, plus read tools such as <code>account_info</code> and <code>tx</code>. Remote uses the Service Binding; local uses a public node.</li>
+    <li>The MCP SDK is not used. As in the current agent, only four methods are implemented (<code>initialize</code>, <code>tools/list</code>, <code>tools/call</code>, <code>notifications/*</code>).</li>
+  </ul>
+
+  <h3>Submission (D1: authenticated)</h3>
+  <p>Server-side submission is limited to one agent MCP tool, <code>submit</code>. It submits only when all of the following conditions are met.</p>
+  <ol>
+    <li><strong>Caller authentication:</strong> the agent's bearer token (the existing <code>requireToken</code>). Local stdio does not expose <code>submit</code>.</li>
+    <li><strong>Signer authentication:</strong> it accepts only a signed <code>tx_blob</code>. It decodes it, verifies <code>TxnSignature</code> (or each signature in <code>Signers</code>) with <code>SigningPubKey</code>, and confirms that the account of that public key matches <code>Account</code> (RegularKey is Phase 2, confirmed via <code>account_info</code>). The signature is made on the user's device with a Passkey or similar, and the server holds no keys.</li>
+    <li><strong>Per-call approval:</strong> the tool carries <code>destructiveHint: true</code>, relying on confirmation on the MCP client side (such as Claude Code's permission prompt).</li>
+    <li><strong>Destination:</strong> the agent submits directly to a public node. It does not go through the <code>xrpl</code> Worker (which stays read-only). The network is chosen by an argument, and the default is testnet.</li>
+    <li><strong>Logging:</strong> log the hash of the submitted transaction, the account, the network, and rippled's <code>engine_result</code>. The full blob is not logged.</li>
+  </ol>
+  <p>"Authenticated" was interpreted as the combination of 1–3 above. If the interpretation is wrong, fix this section and <code>AGENTS.md</code>.</p>
+
+  <h3>Skills</h3>
+  <ul>
+    <li><code>packages/skills/xrpl-tx-build/SKILL.md</code>: procedure from assembling Payment / TrustSet / OfferCreate, through autofill (Fee, Sequence, LastLedgerSequence), to verified confirmation after submission.</li>
+    <li><code>packages/skills/xrpl-codec-debug/SKILL.md</code>: decoding <code>tx_blob</code>, field order, how to read amount representations.</li>
+    <li>The frontmatter (<code>name</code>, <code>description</code>) follows the Agent Skills format. The code examples inside are executed by tests (S02).</li>
+  </ul>
+
+  <h3><code>codemode/apps/dev/app</code> — browser app</h3>
+  <ul>
+    <li>Served as static assets of the Worker <code>xrpl</code>. <code>xrpl</code> has no public URL, so the app is not published either (D6). It runs only locally (<code>vp dev</code> or Alchemy's dev mode). Publishing it would also expose the <code>xrpl</code> API, so decide how to split them before that.</li>
+    <li>There are four screens:
+      <ul>
+        <li>Passkey registration (detect whether PRF is available, and show the Secret Numbers backup)</li>
+        <li>Connection</li>
+        <li>Transaction confirmation (the decoded content is shown in a human-readable form) and signing</li>
+        <li>Submission result</li>
+      </ul>
+    </li>
+    <li>It receives the <code>tx_json</code> created by MCP or Code Mode (for example through a URL), and a person confirms and signs it. This is the core of the "AI prepares, a person signs" flow.</li>
+    <li>CSP restricts <code>connect-src</code> to public nodes and its own origin. Only the signed blob is sent to the server (checked by A03).</li>
+  </ul>
+</section>
+
+<!-- 06 -->
+<section id="spec">
+  <h2><span class="num">06</span>Crypto and codec specification</h2>
+
+  <h3>Constants</h3>
+  <table>
+    <tr><th>Name</th><th>Value</th><th>Use</th></tr>
+    <tr><td>Base58 alphabet</td><td><code>rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz</code></td><td>XRPL-specific</td></tr>
+    <tr><td>AccountID version</td><td><code>0x00</code> (starts with <code>r</code>)</td><td>Address</td></tr>
+    <tr><td>Family Seed version</td><td><code>0x21</code> (starts with <code>s</code>)</td><td>secp256k1 seed</td></tr>
+    <tr><td>Ed25519 Seed prefix</td><td><code>0x01 0xE1 0x4B</code> (starts with <code>sEd</code>)</td><td>ed25519 seed</td></tr>
+    <tr><td>X-address prefix</td><td>mainnet <code>0x05 0x44</code>, testnet <code>0x04 0x93</code></td><td>XLS-5d</td></tr>
+    <tr><td>Single-signing prefix</td><td><code>0x53545800</code> (<code>"STX\0"</code>)</td><td><code>encodeForSigning</code></td></tr>
+    <tr><td>Multi-signing prefix</td><td><code>0x534D5400</code> (<code>"SMT\0"</code>). The signer's AccountID is appended at the end</td><td><code>encodeForMultisigning</code></td></tr>
+    <tr><td>Transaction ID prefix</td><td><code>0x54584E00</code> (<code>"TXN\0"</code>)</td><td><code>hashTransaction</code></td></tr>
+    <tr><td>ed25519 public key</td><td>33 bytes with <code>0xED</code> prepended</td><td>Same length as a compressed secp256k1 public key</td></tr>
+  </table>
+
+  <h3>Signing</h3>
+  <ul>
+    <li><strong>secp256k1:</strong> signs sha512Half(<code>STX\0</code> ‖ serialization). It is a deterministic RFC 6979 signature, normalized to low-S and DER-encoded.</li>
+    <li><strong>ed25519:</strong> signs <code>STX\0</code> ‖ serialization itself, not a hash. The first-edition description "sign the first 32 bytes" does not apply to ed25519.</li>
+    <li><strong>secp256k1 key derivation:</strong>
+      <ol>
+        <li>Root private key: compute sha512Half of seed ‖ seq (32 bits, from 0), and use the first value that is nonzero and less than the curve order.</li>
+        <li>Intermediate: select sha512Half of the root's compressed public key ‖ accountIndex(0) ‖ subseq under the same condition.</li>
+        <li>Private key = (root + intermediate) mod n.</li>
+      </ol>
+    </li>
+  </ul>
+
+  <h3>Codec</h3>
+  <ul>
+    <li><strong>Definitions:</strong> the result of rippled's <code>server_definitions</code> is committed as <code>definitions.json</code>. Updates are done by script, and tests run offline.</li>
+    <li><strong>Field order:</strong> ascending by (type code, field code). The Field ID is 1 byte if both type and field are below 16, 2 bytes if one of them is 16 or more, and 3 bytes if both are 16 or more.</li>
+    <li><strong>Variable-length length prefix:</strong>
+      <ul>
+        <li>0–192 is 1 byte</li>
+        <li>193–12,480 is 2 bytes</li>
+        <li>12,481–918,744 is 3 bytes</li>
+        <li>Anything beyond that is an error</li>
+      </ul>
+    </li>
+    <li><strong>Amounts:</strong>
+      <ul>
+        <li>XRP is 64 bits (leading bit 0, the next bit is the sign), with an upper limit of 10<sup>17</sup> drops.</li>
+        <li>An issued currency is: leading bit 1, sign, exponent (8 bits, offset by +97), and a 54-bit mantissa (normalized to 10<sup>15</sup>–10<sup>16</sup>−1). Zero is <code>0x8000000000000000</code>.</li>
+        <li>It is followed by a 20-byte currency and a 20-byte issuer.</li>
+        <li>An MPT amount is 33 bytes. The first byte is <code>0x60</code> (positive sign and the MPT flag), followed by an 8-byte value (0–2<sup>63</sup>−1) and a 24-byte MPT issuance ID. In JSON it is <code>{ mpt_issuance_id, value }</code>.</li>
+      </ul>
+    </li>
+    <li><strong>Number and Int32:</strong>
+      <ul>
+        <li>Number is 12 bytes: a signed 64-bit mantissa followed by a signed 32-bit exponent, both big-endian. The mantissa is normalized to 10<sup>18</sup>–2<sup>63</sup>−1, and digits that overflow are rounded at the last digit. Zero is mantissa 0 and exponent −2<sup>31</sup>. Normalization and conversion to string are the same as ripple-binary-codec (the only difference is that decode places the decimal point as the value is, when the mantissa is below 10<sup>17</sup>).</li>
+        <li>Int32 is a signed 32-bit big-endian. In JSON it is a number.</li>
+      </ul>
+    </li>
+    <li><strong>Issue:</strong> XRP is only 20 zero bytes. An issued currency is a 20-byte currency and a 20-byte issuer. MPT is a 20-byte issuer, <code>00…01</code> (20 bytes), and a 4-byte sequence (little-endian). In JSON it is <code>{ mpt_issuance_id }</code> (4 bytes of the sequence in big-endian, and the issuer).</li>
+    <li><strong>Currency codes:</strong>
+      <ul>
+        <li>A 3-character code is placed at bytes 12–14 of the 20 bytes.</li>
+        <li>Using <code>"XRP"</code> as the code of an issued currency is an error.</li>
+        <li>A 40-digit hex is handled as is.</li>
+      </ul>
+    </li>
+    <li><strong>Extension point:</strong> XLS-83d fields can be handled just by adding them to <code>definitions.json</code>.</li>
+  </ul>
+
+  <h3>Implementation assignments</h3>
+  <table>
+    <tr><th>Feature</th><th>Implementation</th><th>Notes</th></tr>
+    <tr><td>SHA-256 / SHA-512</td><td><code>crypto.subtle.digest</code></td><td></td></tr>
+    <tr><td>RIPEMD-160</td><td>Pure TS (about 80 lines)</td><td>Not in Web Crypto</td></tr>
+    <tr><td>Base58Check</td><td>Pure TS (BigInt). The checksum is SHA-256 twice</td><td></td></tr>
+    <tr><td>secp256k1</td><td><code>@noble/curves</code> (D4). RFC 6979 deterministic nonce, low-S, DER over the 32-byte SHA-512-Half digest (<code>prehash: false</code>). Verify additionally enforces rippled's 8..72-byte DER bound, 32-byte digests and low-S</td><td>Web Crypto does not have secp256k1</td></tr>
+    <tr><td>ed25519</td><td><code>@noble/curves</code> (D4). RFC 8032. Verification is strict (<code>zip215: false</code>: S &lt; L, rejects non-canonical point encodings and small-order public keys). noble checks the cofactored equation, rippled's donna the cofactorless one</td><td>Web Crypto's <code>Ed25519</code> is not used. Support on Bun and browsers has not been verified <span class="tag">needs verification</span>. May be swapped in once support is uniform</td></tr>
+    <tr><td>HKDF</td><td><code>crypto.subtle.deriveBits</code></td><td></td></tr>
+  </table>
+  <div class="callout warn">
+    <strong>Limits of the elliptic curves (noble).</strong>
+    <ul>
+      <li>noble targets algorithmic constant time (fixed operation sequence, scalar blinding) and says itself that no JavaScript library can guarantee constant-timeness (JIT, GC). In environments where timing can be observed (such as shared hosts), take care in handling private keys. Signing only on the user's device is also convenient in this respect. BigInt copies of secret scalars cannot be erased.</li>
+      <li><code>@noble/curves</code> and <code>@noble/hashes</code> 2.4.0 are runtime dependencies of core (Node &gt;= 20.19, ESM-only). Audits per the noble README: Trail of Bits 2023 and Aug 2026, Cure53 2024, Kudelski 2023.</li>
+      <li>The codec, address code, wallet derivation, MCP server and the glue around noble are this repository's and have not been audited by a third party; the READMEs say so.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 07 -->
+<section id="tests">
+  <h2><span class="num">07</span>Test design</h2>
+
+  <h3>Layers and runtimes</h3>
+  <table>
+    <tr><th>Layer</th><th>Content</th><th>Run</th><th>CI</th></tr>
+    <tr><td>P (portability)</td><td>No Node APIs are used, and the three runtimes give the same results</td><td>tsc, <code>bun build</code>, <code>bun test</code>, workerd (started directly, same version as Alchemy)</td><td>Every PR</td></tr>
+    <tr><td>W (library)</td><td>Fixed vectors, differential tests against xrpl.js, property tests</td><td>vite-plus (<code>vp test</code>). The same files also run under <code>bun test</code></td><td>Every PR</td></tr>
+    <tr><td>C, M (AI entry points)</td><td>Tool list, schema invariants, calls from a real MCP client</td><td>The library uses vite-plus. The agent uses <code>bun test</code> (the Service Binding is a fake), and Alchemy Test's dev mode, which stands up the real Worker on a local workerd and calls it (<code>test/worker.test.ts</code>. The Worker Loader is real too. Requires Cloudflare credentials, so local only)</td><td>Every PR (dev mode is local)</td></tr>
+    <tr><td>S (Skills)</td><td>Frontmatter, and running the code examples inside</td><td>vite-plus</td><td>Every PR</td></tr>
+    <tr><td>A (app)</td><td>Verify registration, signing, and network traffic with a virtual authenticator</td><td>Playwright (Chromium)</td><td>When the app changes</td></tr>
+    <tr><td>E (e2e)</td><td>Prepare, sign, and submit on testnet. Nothing is sent to the production Worker</td><td><code>bun test</code></td><td>Manual only</td></tr>
+  </table>
+  <ul>
+    <li><strong>Runtime check:</strong> tests written with <code>import { describe, it, expect } from "vite-plus/test"</code> also run as-is under <code>bun test</code> (<code>bun run test:packages:bun</code>, Bun 1.4.2).</li>
+    <li><strong>How workerd is run:</strong> <code>@cloudflare/vitest-pool-workers</code> (0.23.0) requires vitest ^4.1 and cannot be combined with Vitest 5. So on workerd it takes the following form (<code>packages/core/test/portability.test.ts</code>).
+      <ol>
+        <li>Pass the fixed vectors, and expected values produced from xrpl.js on the host side, to a runner Worker.</li>
+        <li>Bundle the runner Worker with <code>bun build</code>, run it with <code>workerd serve</code> (without <code>nodejs_compat</code>, compatibility date 2026-09-25), and confirm there are 0 failures. Exactly one workerd, the same version as the one Alchemy uses, is installed (<code>packages/core/test/workerd.ts</code>. Miniflare is not used).</li>
+      </ol>
+    </li>
+    <li><strong>Oracles (devDependencies only; not runtime dependencies):</strong>
+      <ul>
+        <li><code>ripple-binary-codec</code> 2.11.0</li>
+        <li><code>ripple-keypairs</code> 3.1.0</li>
+        <li><code>ripple-address-codec</code> 5.0.1</li>
+        <li><code>@xrplf/secret-numbers</code> 3.0.0</li>
+        <li><code>fast-check</code> 4.10.2</li>
+      </ul>
+      All are ISC-licensed. When copying fixtures, record the source commit and license in <code>test/vectors/README</code>.</li>
+  </ul>
+
+  <h3>Fixed vectors (confirmed against the oracles, 2026-10-11)</h3>
+  <table>
+    <tr><th>Input</th><th>Expected value</th></tr>
+    <tr><td>SHA-256(<code>"abc"</code>)</td><td><code>ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad</code></td></tr>
+    <tr><td>SHA-512(<code>"abc"</code>)</td><td><code>ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f</code></td></tr>
+    <tr><td>RIPEMD-160(<code>""</code>) / (<code>"abc"</code>)</td><td><code>9c1185a5c5e9fc54612808977ee8f548b2258d31</code> / <code>8eb208f7e05d987a9b044a8e98c6b087f15a0bfc</code></td></tr>
+    <tr><td>seed <code>snoPBrXtMeMyMHUVTgbuqAfg1SUTb</code> (secp256k1)</td><td>public key <code>0330E7FC9D56BB25D6893BA3F317AE5BCF33B3291BD63DB32654A313222F7FD020</code>, address <code>rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh</code></td></tr>
+    <tr><td>entropy 0×16 (ed25519)</td><td>seed <code>sEdSJHS4oiAdz7w2X2ni1gFiqtbJHqE</code>, address <code>r9zRhGr7b6xPekLvT6wP4qNdWMryaumZS7</code></td></tr>
+    <tr><td><code>rHb9…</code> + tag 12345 (mainnet)</td><td><code>XVPcpSm47b1CZkf5AkKM9a84dQHe3mTAxgxfLw2qYoe7Boa</code></td></tr>
+    <tr><td><code>rHb9…</code>, no tag (testnet)</td><td><code>TVK3SYvMLZR6rEtLDZh3saYHaqFSeMpn3Dz7EsmQC63VUwh</code></td></tr>
+    <tr><td>Secret Numbers <code>570521-598543-265488-209520-212450-201006-286214-581400</code></td><td>with secp256k1 (the default; same as xrpl.js and Xaman), address <code>rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh</code>; with ed25519 (the default of <code>Account</code> in <code>@xrplf/secret-numbers</code>), <code>rGWrZyQqhTp9Xu7G5Pkayo7bXjH4k4QYpf</code>. Changing the last block to <code>581401</code> gives a checksum error</td></tr>
+    <tr><td>First 4 bytes of <code>encodeForSigning(Payment)</code></td><td><code>53545800</code></td></tr>
+  </table>
+
+  <h3>P — Portability</h3>
+  <table>
+    <tr><th>ID</th><th>What is checked</th><th>Method</th></tr>
+    <tr><td>P01</td><td>No Node APIs are used at the type level</td><td>Run <code>tsc --noEmit</code> on each package with <code>types: []</code> and <code>lib: ["ES2022","DOM"]</code> in <code>tsconfig</code>. Using <code>Buffer</code> etc. gives a type error</td></tr>
+    <tr><td>P02</td><td>No traces of Node in the bundle</td><td>Fail if the output of <code>bun build --target=browser</code> contains <code>node:</code>, <code>require(</code>, <code>Buffer</code>, or <code>process.</code></td></tr>
+    <tr><td>P03</td><td>All W cases pass on Bun</td><td><code>bun test packages/*/test</code></td></tr>
+    <tr><td>P04</td><td>The fixed-vector and differential cases pass on workerd</td><td>Run the runner Worker on workerd; 0 failures in the result JSON</td></tr>
+    <tr><td>P05</td><td>The same cases pass in a browser (Phase 2)</td><td>Open the runner page with Playwright</td></tr>
+  </table>
+
+  <h3>W — <code>xrp-dev</code></h3>
+  <table>
+    <tr><th>ID</th><th>What is checked</th><th>Input and oracle</th></tr>
+    <tr><td>W-C01</td><td>SHA-256 / SHA-512 / sha512Half</td><td>The fixed vectors above. sha512Half equals the first 32 bytes of SHA-512</td></tr>
+    <tr><td>W-C02</td><td>RIPEMD-160</td><td>Fixed reference vectors, including the million-<code>a</code> one (RIPEMD-160 itself is <code>@noble/hashes/legacy</code>)</td></tr>
+    <tr><td>W-C03</td><td>Base58 round trip and leading 0 bytes</td><td>Property test: <code>decode(encode(b)) = b</code>. Each leading 0 byte becomes one <code>r</code></td></tr>
+    <tr><td>W-C04</td><td>Base58Check tampering is detected</td><td>Replacing one character gives the error <code>crypto/bad_checksum</code></td></tr>
+    <tr><td>W-E01</td><td>Known ed25519 vectors</td><td>Test vectors from RFC 8032 section 7.1 (public key and signature match byte for byte)</td></tr>
+    <tr><td>W-E02</td><td>Rejection of invalid input</td><td>With the Wycheproof <code>ecdsa_secp256k1_sha256</code> and <code>ed25519</code> vectors, <code>result</code> matches the valid / invalid verdict</td></tr>
+    <tr><td>W-E03</td><td>Known answers and rippled canonicality</td><td>Pinned secp256k1 vector (key 1, "Satoshi Nakamoto"); a mutation table of non-strict DER, r/s out of range, lengths outside 8..72 and high-S, all verify false; ed25519 small-order (identity) public key and S &gt;= L verify false (the old differential tests against noble would be noble against noble and were removed)</td></tr>
+    <tr><td>W-E04</td><td>Shape of secp256k1 signatures</td><td>Same signature for the same key and message (RFC 6979). S is always at most n/2 (low-S). <code>verify</code> returns false for a high-S signature</td></tr>
+    <tr><td>W-E05</td><td>Out-of-range values</td><td>0, a private key of n or more, or a public key not on the curve gives <code>CryptoError</code></td></tr>
+    <tr><td>W-A01</td><td>Address from public key</td><td><code>rHb9…</code> from the genesis public key. All ripple-keypairs fixtures</td></tr>
+    <tr><td>W-A02</td><td>X-address round trip</td><td>The fixed vectors above. With and without tag, mainnet and testnet. Differential against ripple-address-codec</td></tr>
+    <tr><td>W-A03</td><td>Invalid addresses are rejected</td><td>Wrong length, characters outside the alphabet, checksum mismatch, a seed passed as an address</td></tr>
+    <tr><td>W-K01</td><td>Serialization matches xrpl.js byte for byte</td><td>For every transaction in ripple-binary-codec's <code>codec-fixtures.json</code>, the <code>encode</code> result and the <code>decode</code> round trip</td></tr>
+    <tr><td>W-K02</td><td>Random transactions also match</td><td>Generate 15 kinds of transactions and ledger objects with fast-check (MPT Payment, VaultCreate, VaultDeposit, LoanSet, MPTokenIssuanceCreate, AMMDeposit, XChainCreateBridge, Loan, Vault, and others) and match ripple-binary-codec's <code>encode</code> and <code>decode</code> (3,000 cases)</td></tr>
+    <tr><td>W-K03</td><td>Field order</td><td>Reordering the input keys does not change the output</td></tr>
+    <tr><td>W-K04</td><td>Boundaries of the variable-length prefix</td><td>Lengths 192, 193, 12,480, 12,481, 918,744 give 1, 2, 2, 3, 3 bytes. 918,745 is an error</td></tr>
+    <tr><td>W-K05</td><td>XRP amounts</td><td><code>"0"</code> and <code>"100000000000000000"</code> pass. 10<sup>17</sup>+1, negative values, and decimals are errors</td></tr>
+    <tr><td>W-K06</td><td>Issued-currency amounts</td><td><code>"1"</code>, <code>"0"</code>, <code>"-1.5"</code>, <code>"1e80"</code>, <code>"1e-96"</code> match the oracle. 17 significant digits and exponents out of range are errors</td></tr>
+    <tr><td>W-K07</td><td>Currency codes</td><td>Placement of <code>"USD"</code>, 40-digit hex, and passing <code>"XRP"</code> as an issued currency is an error</td></tr>
+    <tr><td>W-K08</td><td>Unknown fields and type mismatches</td><td>Errors <code>codec/unknown_field</code>, <code>codec/bad_type</code>. Never silently dropped</td></tr>
+    <tr><td>W-K09</td><td>Serialization for signing</td><td>Starts with <code>53545800</code>, excludes <code>TxnSignature</code>, matches ripple-binary-codec's <code>encodeForSigning</code></td></tr>
+    <tr><td>W-K10</td><td>Serialization for multi-signing</td><td>Starts with <code>534D5400</code>, ends with the signer's AccountID, matches <code>encodeForMultisigning</code></td></tr>
+    <tr><td>W-K11</td><td>Transaction hash</td><td>Matches the fixture's <code>hash</code></td></tr>
+    <tr><td>W-K12</td><td>The definitions snapshot matches the pinned version</td><td>The SHA-256 of <code>definitions.json</code> equals the recorded value (updated only intentionally)</td></tr>
+    <tr><td>W-K13</td><td>Every serialized field type</td><td>For every serialized field in <code>definitions.json</code>, put in a sample of each type (Amount and Issue as XRP, issued currency, and MPT) and match ripple-binary-codec. Fails if a type with no sample is added to the definitions</td></tr>
+    <tr><td>W-K14</td><td>Number</td><td>Decimal strings of up to 30 digits and exponent ±40,000 match the oracle in both encode and decode, and inputs the oracle throws on give <code>codec/out_of_range</code> (3,000 cases). Rounding near 2<sup>63</sup>, 10<sup>18</sup>, and 10<sup>19</sup>. Decoding of 12 bytes with directly chosen mantissa and exponent (3,000 cases). Invalid strings and data shorter than 12 bytes are errors</td></tr>
+    <tr><td>W-K15</td><td>Int32</td><td>encode and decode match the oracle, including both ends of the range (2,000 cases). Out of range, decimals, and strings are errors</td></tr>
+    <tr><td>W-K16</td><td>MPT amounts and Issue</td><td>0–2<sup>63</sup>−1 matches the oracle, and the byte layout is fixed. Negative values, decimals, 2<sup>63</sup>, extra keys, and IDs of the wrong length are errors. decode rejects a negative sign, extra flags, and out-of-range values</td></tr>
+    <tr><td>W-K17</td><td>Real transactions of the new types</td><td>For VaultCreate, VaultDeposit, LoanSet, MPTokenIssuanceCreate, MPT Payment and OfferCreate, and Loan and Vault ledger entries, <code>encode</code> and <code>encodeForSigning</code> match the oracle, and <code>decode</code> returns the original JSON</td></tr>
+    <tr><td>W-R01</td><td>Shape of the RPC request</td><td>A fake <code>fetch</code> receives a POST of <code>{ method, params: [params] }</code></td></tr>
+    <tr><td>W-R02</td><td>Errors inside a 200 response</td><td><code>result.status = "error"</code> gives <code>client/rippled_error</code>, and a missing <code>result</code> gives <code>client/no_result</code> (ported from the current <code>Rippled.test.ts</code>)</td></tr>
+    <tr><td>W-R03</td><td>Deadline and body size</td><td>A server that does not respond errors at <code>timeoutMs</code>. A body over 5 MB errors before being read in full</td></tr>
+    <tr><td>W-R04</td><td>Matching WebSocket requests and responses</td><td>Even if a fake <code>WebSocket</code> returns them out of order, they are matched correctly by <code>id</code>. On disconnect, all pending requests error</td></tr>
+    <tr><td>W-R05</td><td>autofill</td><td>With a fake client: Fee is <code>open_ledger_fee</code> from <code>fee</code>, Sequence is from <code>account_info</code>, and LastLedgerSequence is the current ledger + 20. Fields that already have a value are not overwritten</td></tr>
+  </table>
+
+  <h3>W — <code>xrp-dev-wallet</code></h3>
+  <table>
+    <tr><th>ID</th><th>What is checked</th><th>Input and oracle</th></tr>
+    <tr><td>W-W01</td><td>Keys from a seed (2 methods)</td><td>2 fixed vectors, and all ripple-keypairs fixtures. Public key and address match</td></tr>
+    <tr><td>W-W02</td><td>secp256k1 signing</td><td>Signatures are deterministic, so they match ripple-keypairs signatures byte for byte. Low-S. <code>verifyTransaction</code> is true</td></tr>
+    <tr><td>W-W03</td><td>ed25519 signing</td><td>It signs the serialization for signing itself, not a hash (matches ripple-keypairs)</td></tr>
+    <tr><td>W-W04</td><td>Multi-signing</td><td><code>SigningPubKey</code> is <code>""</code> and the signature goes into <code>Signers</code>. Same blob as xrpl.js's <code>multisign</code></td></tr>
+    <tr><td>W-W05</td><td>Secret Numbers</td><td>Fixed vectors, per-block checksums, the position of a wrong block is reported in the error, round trip, differential against <code>@xrplf/secret-numbers</code> (100 random cases)</td></tr>
+    <tr><td>W-W06</td><td>Derivation from PRF</td><td>The same PRF output gives the same address, and a 1-bit difference gives a different address. HKDF matches the result of <code>crypto.subtle.deriveBits</code>. Changing the salt gives a different address</td></tr>
+    <tr><td>W-W07</td><td>Secrets do not leak</td><td><code>JSON.stringify(wallet)</code>, <code>String(wallet)</code>, and the error <code>message</code> contain neither the seed nor the private key hex</td></tr>
+    <tr><td>W-W08</td><td><code>destroy()</code></td><td>After the call, all private key bytes are 0 and <code>sign</code> gives the error <code>wallet/destroyed</code></td></tr>
+  </table>
+
+  <h3>K — <code>xrp-dev-wallet/passkey</code> (tests are in <code>packages/wallet/test</code>)</h3>
+  <table>
+    <tr><th>ID</th><th>What is checked</th><th>Method</th></tr>
+    <tr><td>K01</td><td>Types fit <code>WalletAdapter</code></td><td>Check <code>adapter satisfies WalletAdapter</code> in a type test (<code>tsc</code>). xrpl-connect is a devDependency</td></tr>
+    <tr><td>K02</td><td>Detecting unusable environments</td><td><code>isAvailable()</code> is false when <code>navigator.credentials</code> is missing or there is no PRF result</td></tr>
+    <tr><td>K03</td><td>Connect and sign</td><td>A fake <code>navigator.credentials.get</code> returns a fixed PRF output. The address from <code>connect</code> matches W-W06, and the <code>tx_blob</code> from <code>sign</code> verifies</td></tr>
+    <tr><td>K04</td><td>Disconnecting erases the key</td><td>After <code>disconnect</code>, <code>getAccount()</code> is null and <code>sign</code> errors</td></tr>
+    <tr><td>K05</td><td>xrpl.js is not loaded at runtime</td><td>The P02 bundle scan finds no actual code of <code>xrpl</code> or <code>xrpl-connect</code></td></tr>
+  </table>
+
+  <h3>C, M — Code Mode and MCP (M tests are in <code>packages/mcp/test</code>, C in <code>codemode/apps/agent/test/xrp-connector.test.ts</code>)</h3>
+  <table>
+    <tr><th>ID</th><th>What is checked</th><th>Method</th></tr>
+    <tr><td>C01</td><td>Tool list and type descriptions</td><td>The result of <code>describe()</code> matches the decided set, and every tool has an <code>inputSchema</code></td></tr>
+    <tr><td>C02</td><td>Results of computation tools</td><td>Call <code>decode</code> and <code>hash_transaction</code> with the W vectors and get the same results</td></tr>
+    <tr><td>C03</td><td>No arguments that pass keys, and no submission</td><td>No key name in the input/output schemas of any tool matches <code>/seed|secret|private|entropy|prf/i</code>. No signing or submitting tool exists (Code Mode has no <code>submit</code>)</td></tr>
+    <tr><td>C04</td><td><code>prepare*</code> contains no signature</td><td>In the result autofilled with a fake Service Binding, there is neither <code>TxnSignature</code> nor a value for <code>SigningPubKey</code>. The return value is only <code>{ tx_json }</code> (<code>signingData</code> / <code>signingHash</code> were removed on 2026-10-11)</td></tr>
+    <tr><td>M01</td><td>Callable from a real MCP client</td><td>Connect with the Client of <code>@modelcontextprotocol/sdk</code> (devDependency) and perform <code>tools/list</code> and <code>tools/call</code> (same method as the current <code>agent/test/mcp.test.ts</code>)</td></tr>
+    <tr><td>M02</td><td>Read-only with respect to the ledger</td><td>All tools other than <code>ask</code> and <code>submit</code> have <code>annotations.readOnlyHint === true</code>. <code>submit</code> has <code>destructiveHint === true</code>. <code>ask</code> rewrites the Pi conversation, so it has <code>readOnlyHint: false</code> (it cannot submit)</td></tr>
+    <tr><td>M03</td><td>No arguments that pass keys</td><td>The same check as C03, on the MCP registry</td></tr>
+    <tr><td>M04</td><td>stdio launch (Bun)</td><td>Start <code>bun packages/mcp/bin/mcp.ts</code> as a child process; <code>initialize</code> and <code>tools/list</code> respond</td></tr>
+    <tr><td>M05</td><td>Invalid input</td><td>A schema violation is returned as JSON-RPC <code>-32602</code> and the handler is not called</td></tr>
+    <tr><td>M06</td><td>Caller authentication for <code>submit</code></td><td>401 with no token or a wrong token. No request reaches rippled (fake <code>fetch</code>)</td></tr>
+    <tr><td>M07</td><td><code>submit</code> sends only signed blobs</td><td>Three cases are errors and no request reaches rippled: no signature, a broken signature, and the account of <code>SigningPubKey</code> differing from <code>Account</code>. The blob of W-W02 gets through</td></tr>
+    <tr><td>M08</td><td>stdio has no <code>submit</code></td><td><code>tools/list</code> in M04 does not contain <code>submit</code></td></tr>
+    <tr><td>M09</td><td>The log does not keep the blob</td><td>The log output has the hash and account, and not the full <code>tx_blob</code></td></tr>
+  </table>
+
+  <h3>S, A — Skills and app</h3>
+  <table>
+    <tr><th>ID</th><th>What is checked</th><th>Method</th></tr>
+    <tr><td>S01</td><td>frontmatter</td><td><code>name</code> matches the directory name, and <code>description</code> exists</td></tr>
+    <tr><td>S02</td><td>Code examples run</td><td>Extract the <code>```ts</code> blocks of SKILL.md, type-check and run them (examples that use the network are replaced with a fake client)</td></tr>
+    <tr><td>A01</td><td>From registration to signing</td><td>Register, connect, and sign with Playwright's CDP <code>WebAuthn.addVirtualAuthenticator</code> (<code>hasPrf: true</code>). The Chromium 156 virtual authenticator returned a 32-byte PRF result both at creation and at retrieval (confirmed on 2026-10-11)</td></tr>
+    <tr><td>A02</td><td>When there is no PRF</td><td>Registration stops with an authenticator that does not support PRF, and an explanation is shown</td></tr>
+    <tr><td>A03</td><td>Secrets do not appear in network traffic</td><td>Intercept all requests; bodies and URLs contain no seed, private key, or PRF output. Only the signed blob is sent</td></tr>
+    <tr><td>A04</td><td>Confirmation screen</td><td>The destination, amount, and fee of the received <code>tx_json</code> appear on screen before signing</td></tr>
+  </table>
+</section>
+
+<!-- 08 -->
+<section id="npm">
+  <h2><span class="num">08</span>npm and build configuration</h2>
+<pre><code>// Common to all packages (vp pack outputs ESM and .d.ts to dist. In exports, write types first)
+{
+  "type": "module",
+  "sideEffects": false,
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }, "./package.json": "./package.json" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
+  "peerDependencies": { "effect": "^4.0.2" },   // peer so that there is a single Effect instance
+  "scripts": { "build": "vp pack", "test": "vp test run" }
+}
+
+// xrp-dev: subpaths ./crypto ./address ./codec ./client. Runtime: @noble/curves and @noble/hashes (dependencies), effect (peer)
+{ "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0" },
+  "devDependencies": { "fast-check": "…", "workerd": "1.20260918.1", "xrpl": "^5.3.0", "ripple-*": "…" } }
+
+// xrp-dev-wallet (subpath ./passkey)
+{
+  "dependencies": { "xrp-dev": "workspace:*" },
+  "peerDependencies": { "xrpl-connect": "^1.0.0", "xrpl": "^4.0.0 || ^5.0.0" }   // both optional. Used only by the types of ./passkey
+}
+
+// xrp-dev-mcp (bin xrp-dev-mcp is for Bun)
+{ "dependencies": { "xrp-dev": "workspace:*" } }</code></pre>
+<pre><code>// tsconfig.base.json (this single file is the shared one)
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"], "types": [],
+    "strict": true, "noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true,
+    "isolatedModules": true, "verbatimModuleSyntax": true,
+    "noEmit": true, "skipLibCheck": true
+  }
+}</code></pre>
+  <ul>
+    <li><strong>Removed:</strong> <code>engines.node</code> (contradicts Node independence), the <code>require</code> condition (only ESM is emitted), and the TypeScript peer dependency.</li>
+    <li><strong>Versions:</strong> TypeScript is 7.0.2, the same as the repository (not made a peer dependency of the packages. The consumer-side project of <code>check:packages</code> installs it separately for type checking).</li>
+    <li><strong>Names:</strong> as of 2026-10-11, <code>xrp-dev</code>, <code>xrp-dev-wallet</code>, and <code>xrp-dev-mcp</code> do not exist on npm (confirmed with <code>npm view</code>). They have not been claimed. The old <code>@xrp-dev/passkey</code> and <code>@xrp-dev/codemode</code> were merged on 2026-10-11 (D7).</li>
+    <li><strong>Build and checks:</strong> <code>bun run build:packages</code> at the repo root produces <code>dist</code> in the order core → wallet → mcp. The apps and tests also read <code>dist</code>, so build first before <code>typecheck</code>, <code>test</code>, <code>plan</code>, and <code>deploy</code>. <code>bun run check:packages</code> (also run in CI) runs publint and attw (ESM only) on the tarball made by <code>bun pm pack</code>, installs it into a separate project, imports every subpath on Node and Bun, and checks types with <code>tsc</code> (node16 and bundler).</li>
+    <li><strong>Publishing (not done):</strong> <code>npm publish</code> does not rewrite <code>workspace:*</code>, so publish the <code>bun pm pack</code> tarball with <code>npm publish &lt;tgz&gt; --provenance</code> (GitHub OIDC). <code>id-token: write</code> is given only to the publishing job. Claiming the npm organization <code>@xrp-dev</code> is a human task.</li>
+  </ul>
+</section>
+
+<!-- 09 -->
+<section id="roadmap">
+  <h2><span class="num">09</span>Roadmap</h2>
+  <table>
+    <tr><th>Phase</th><th>Content</th><th>Done when</th></tr>
+    <tr><td><strong>0. Move</strong></td><td>Move <code>xrpl</code> and <code>agent</code> to <code>apps/</code>. Fix workspaces, scripts, CI, <code>main</code> in <code>infra</code>, and paths in docs</td><td><code>alchemy plan</code> shows updates only. Existing tests and production e2e 5/5</td></tr>
+    <tr><td><strong>1. core</strong></td><td>Build in the order crypto (secp256k1, ed25519 and RIPEMD-160 from noble) → address → codec → client. Do not replace <code>Rippled.ts</code> in <code>apps/dev</code> (at the time, Effect 3 and 4 could not be mixed in one program)</td><td>P01–P04, W-C*, W-E*, W-A*, W-K*, W-R*</td></tr>
+    <tr><td><strong>2. wallet</strong></td><td>Seed, keys, signing, Secret Numbers, PRF</td><td>W-W*</td></tr>
+    <tr><td><strong>3. AI entry points</strong></td><td>Integrate <code>codemode/apps/agent/src/xrp-connector.ts</code> into the agent, and <code>xrp-dev-mcp</code> into the agent's <code>/mcp</code> and Bun stdio. Two Skills</td><td>C*, M*, S*</td></tr>
+    <tr><td><strong>4. passkey, app, submission</strong></td><td><code>xrp-dev-wallet/passkey</code> and <code>codemode/apps/dev/app</code>. Add <code>submit</code> to the agent's MCP (update <code>AGENTS.md</code> first). Get the "AI prepares, a person signs" flow working end to end</td><td>K*, A*, M06–M09. testnet e2e (E)</td></tr>
+    <tr><td><strong>5. Audit</strong></td><td>The curves are noble (audited); have a third party review the rest (codec, address, wallet derivation, MCP server, glue). Swap in Web Crypto's <code>Ed25519</code> if it becomes uniform across the 3 environments. Findings from the internal review (curves, signing checks, submission, app) have been fixed (Security in the CHANGELOG). The third-party audit has not been done</td><td>All audit findings closed</td></tr>
+    <tr><td><strong>6. XLS-83d</strong></td><td>Support ledger-native Passkey signing after the specification becomes Final. As of 2026-10-11, the specification is still Draft (rev. 2, 2024-11-20), and discussion <a href="https://github.com/XRPLF/XRPL-Standards/discussions/236">#236</a> is Closed. rippled's <code>server_definitions</code> has no Passkey fields. The conditions to start are not met</td><td>Update the definitions and add a <code>Signer</code></td></tr>
+  </table>
+</section>
+
+<!-- 10 -->
+<section id="decisions">
+  <h2><span class="num">10</span>Decisions (2026-10-11)</h2>
+  <table>
+    <tr><th>ID</th><th>Question</th><th>Decision</th></tr>
+    <tr><td>D1</td><td>May the server side submit?</td><td>Yes, authenticated. Limited to one agent MCP tool, <code>submit</code>, which accepts only signed blobs (<a href="#ai">section 05</a>). <code>xrpl</code> stays read-only. Write the rule in <code>AGENTS.md</code> before implementing</td></tr>
+    <tr><td>D2</td><td>Include the SDK and AI entry points in <code>docs/requirements.md</code>?</td><td>Include them</td></tr>
+    <tr><td>D3</td><td>Use Effect in the library?</td><td>Yes. Effect 4 (same as the agent). <code>xrpl</code> was also moved to Effect 4 on 2026-10-11 (the hono-openapi conversion is swapped via <code>loadVendor</code>)</td></tr>
+    <tr><td>D4</td><td>Implement the elliptic curves in-house?</td><td>Superseded: use <code>@noble/curves</code> and <code>@noble/hashes</code>; the in-house curves and RIPEMD-160 are removed. Reason: noble is audited and targets algorithmic constant time, the in-house BigInt code was variable-time, unaudited and 2.7x to 6x slower. Original decision was in-house with noble only as a test oracle</td></tr>
+    <tr><td>D5</td><td>Name</td><td><code>xrp-dev</code>. npm uses the scope <code>@xrp-dev/*</code>, and the GitHub repository name is <code>xrp-dev</code> (the stack name <code>codemode</code> is not changed)</td></tr>
+    <tr><td>D6</td><td>Domain of the browser app</td><td>Not published. When publishing, a human chooses the domain</td></tr>
+    <tr><td>D7</td><td>Merge the packages?</td><td>Yes. Make it three: <code>xrp-dev</code> (no keys), <code>xrp-dev-wallet</code> (the only package that holds keys; includes <code>/passkey</code>), and <code>xrp-dev-mcp</code> (one tool registry). The Code Mode connector assumes the shape of the private <code>xrpl</code> REST API, so it lives in <code>apps/agent</code>. Reason: there were two tool implementations for MCP and Code Mode, and they diverged (argument names, signing target). Also, the server side must not import the key package (<code>verifyTransaction</code> and others were moved to core). The codec later gained the <code>Number</code> / <code>Int32</code> types, MPT amounts and Issue, and negative values for <code>FeeAmountDelta</code></td></tr>
+  </table>
+</section>
+
+<!-- 11 -->
+<section id="lessons">
+  <h2><span class="num">11</span>Lessons from xrpl.js / xrpl-connect</h2>
+  <table>
+    <tr><th>Item</th><th>Existing situation</th><th>Response in this design</th></tr>
+    <tr><td>Runtime switching</td><td>xrpl.js resolves Node and the browser conditionally with <code>@xrplf/isomorphic</code>, and polyfills tend to bloat on workerd</td><td>Remove conditional branches and assume only Web Standard (P01, P02)</td></tr>
+    <tr><td>Byte arrays</td><td>Assumes <code>Buffer</code></td><td>Use only <code>Uint8Array</code> / <code>DataView</code></td></tr>
+    <tr><td>WebSocket</td><td>Uses <code>ws</code> on Node</td><td>The global <code>WebSocket</code>. Make it replaceable for tests</td></tr>
+    <tr><td>Bundlers</td><td>The interpretation of <code>main</code> / <code>module</code> differs per bundler</td><td>Emit only <code>types</code> and <code>import</code> in <code>exports</code> (ESM only)</td></tr>
+    <tr><td>Adapter</td><td>xrpl-connect declares capabilities with <code>WalletAdapter</code> and <code>capabilities</code></td><td>Implement the same type and keep Passkey-specific handling inside the adapter. xrpl-connect is used only as a type</td></tr>
+    <tr><td>Dependencies</td><td>xrpl-connect has xrpl.js as a peer dependency</td><td>No runtime dependency. Only the types of <code>/passkey</code> refer to xrpl-connect and xrpl as optional peers. Named <code>Flags</code> (objects) are refused, since converting them requires xrpl.js (K03, K05)</td></tr>
+  </table>
+</section>
+
+</main>
+
+<footer>
+  <p>xrp-dev Design Document — rev. 2026-10-11 (first edition 2026-10-05).
+  Versions and fixed vectors were confirmed with npm and the oracle packages. Items marked <span class="tag">needs verification</span> have not been confirmed.</p>
+</footer>
+
+</body>
+</html>
