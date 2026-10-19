@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.3 (unreleased)
+
+- **Fix**: `loginProofTx` set `LastLedgerSequence: 1` and `SigningPubKey: ""`, so `login()` with Xaman (xrpl-connect's `XamanAdapter`) never reached the wallet: its `sign()` refuses a `LastLedgerSequence` below 32570 (small values read as relative offsets), and an empty `SigningPubKey` turns the payload into a multisign request. The proof now carries `LastLedgerSequence: 32570` and leaves `SigningPubKey` to the signer. It stays unappliable (`Sequence` 0, `Fee` 0), and `verifyProofTx` is unchanged.
+
 ## 0.1.0-alpha.2 (2026-10-19)
 
 - **Fix**: `autofill` with `definitions` probed `fee` with a blob lacking `Sequence` and `Fee`, which xahaud answers with `invalidTransaction`; every `PasskeyAdapter` send on Xahau without a preset `Fee` failed. The probe now carries `Sequence: 0` and `Fee: "0"` placeholders.

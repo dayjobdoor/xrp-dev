@@ -64,14 +64,16 @@ const hex = (text: string) => bytesToHex(utf8(text)).toUpperCase();
 /**
  * For wallets that cannot sign messages (Xaman): a transaction the ledger can never apply (`Sequence` 0 and `Fee` 0
  * are both invalid), carrying the login message in a memo. Signing it proves the key without moving anything.
+ * `SigningPubKey` is left to the wallet: Xaman reads an empty one as a multisign request.
  */
 export const loginProofTx = (p: { app: string; challenge: string; account: string }): TxJson => ({
   TransactionType: "AccountSet",
   Account: p.account,
   Sequence: 0,
   Fee: "0",
-  LastLedgerSequence: 1, // also lets `autofill` skip every network call
-  SigningPubKey: "",
+  // Xaman's sign() wants an absolute value of at least 32570 (smaller ones read as relative offsets).
+  // Being present also lets `autofill` skip every network call
+  LastLedgerSequence: 32570,
   Memos: [{ Memo: { MemoType: hex("login"), MemoData: hex(loginMessage(p.app, p.challenge)) } }],
 });
 

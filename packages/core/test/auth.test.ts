@@ -54,6 +54,16 @@ describe("verifyMessage", () => {
   }
 });
 
+describe("loginProofTx", () => {
+  // xrpl-connect's XamanAdapter.sign() throws below 32570 and sends `multisign: true` for an empty SigningPubKey
+  it("meets Xaman's sign() contract: absolute LastLedgerSequence, no empty SigningPubKey", () => {
+    const tx = loginProofTx({ app: APP, challenge: "1.abc", account: "rPEPPER7kfTD9w2To4CQk6UCfuHM9c6GDY" });
+    expect(tx.LastLedgerSequence).toBeGreaterThanOrEqual(32570);
+    expect(tx.LastLedgerSequence).toBeLessThanOrEqual(4294967295);
+    expect(tx.SigningPubKey).not.toBe("");
+  });
+});
+
 describe("verifyProofTx", () => {
   const wallet = XrplWallet.fromSeed("sEdSJHS4oiAdz7w2X2ni1gFiqtbJHqE");
   const proof = (challenge: string, over: Record<string, unknown> = {}) => ({ ...loginProofTx({ app: APP, challenge, account: wallet.address }), ...over });
