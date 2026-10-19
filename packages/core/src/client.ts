@@ -286,7 +286,8 @@ export const autofill = (
     if (needFee || needLls) {
       const feeParams =
         needFee && opts.definitions
-          ? { tx_blob: yield* encode({ ...out, SigningPubKey: "" }, opts.definitions).pipe(Effect.mapError((e) => err("bad_input", `fee: ${e.message}`))) }
+          ? // xahaud answers invalidTransaction to a probe without Sequence and Fee; their values do not change the answer.
+            { tx_blob: yield* encode({ Sequence: 0, Fee: "0", ...out, SigningPubKey: "" }, opts.definitions).pipe(Effect.mapError((e) => err("bad_input", `fee: ${e.message}`))) }
           : undefined;
       const fee = yield* client.request<{ drops?: { base_fee?: string; open_ledger_fee?: string }; ledger_current_index?: number }>("fee", feeParams);
       if (needFee) {

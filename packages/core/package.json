@@ -1,6 +1,6 @@
 {
   "name": "xrp-dev",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "XRPL SDK for workerd, Bun, browsers and Node. The main entry holds no keys; wallets are xrp-dev/wallet and the MCP server is xrp-dev/mcp.",
   "keywords": ["xrpl", "xrp", "ripple", "effect", "cloudflare-workers", "workerd", "edge", "codec", "ed25519", "secp256k1"],
   "homepage": "https://github.com/dayjobdoor/xrp-dev/tree/main/packages/core#readme",

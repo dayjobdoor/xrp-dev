@@ -1,7 +1,7 @@
 {
   "name": "xrp-dev-wallet",
   "private": true,
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "The only key-holding package of xrp-dev: XRPL wallets from entropy and secret numbers, plus an xrpl-connect passkey adapter.",
   "keywords": ["xrpl", "xrp", "wallet", "passkey", "webauthn", "xrpl-connect", "effect", "cloudflare-workers"],
   "homepage": "https://github.com/dayjobdoor/xrp-dev/tree/main/packages/wallet#readme",

@@ -13,7 +13,7 @@
     },
     "packages/core": {
       "name": "xrp-dev",
-      "version": "0.1.0-alpha.1",
+      "version": "0.1.0-alpha.2",
       "bin": {
         "xrp-dev-mcp": "./dist/mcp/mcp.js",
       },
@@ -46,7 +46,7 @@
     },
     "packages/mcp": {
       "name": "xrp-dev-mcp",
-      "version": "0.1.0-alpha.1",
+      "version": "0.1.0-alpha.2",
       "dependencies": {
         "xrp-dev": "workspace:^",
       },
@@ -64,7 +64,7 @@
     },
     "packages/wallet": {
       "name": "xrp-dev-wallet",
-      "version": "0.1.0-alpha.1",
+      "version": "0.1.0-alpha.2",
       "dependencies": {
         "xrp-dev": "workspace:^",
       },
@@ -90,7 +90,7 @@
     },
     "packages/x402": {
       "name": "xrp-dev-x402",
-      "version": "0.1.0-alpha.1",
+      "version": "0.1.0-alpha.2",
       "devDependencies": {
         "hono": "4.13.13",
         "vite-plus": "1.1.0",

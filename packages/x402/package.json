@@ -1,7 +1,7 @@
 {
   "name": "xrp-dev-x402",
   "private": true,
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Source of xrp-dev/x402: a Hono gate for x402 v2 exact payments on XRPL. No Express and no xrpl.js.",
   "license": "MIT",
   "type": "module",

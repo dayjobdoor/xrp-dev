@@ -34,7 +34,7 @@ const node = (drops: Record<string, string>) => {
   const client: RpcClient = {
     request: <T>(method: string, params?: object) => {
       asked.push({ method, ...(params && { params }) });
-      return Effect.succeed({ drops, ledger_current_index: 100 } as T);
+      return Effect.succeed({ drops, ledger_current_index: 100, account_data: { Sequence: 5 } } as T);
     },
   };
   return { client, asked };
@@ -52,9 +52,12 @@ describe("autofill", () => {
 
   it("with definitions asks for the fee of this transaction and uses base_fee", async () => {
     const { client, asked } = node({ base_fee: "34", open_ledger_fee: "10" });
-    const out = await run(autofill(client, payment, { definitions: XAHAU_DEFINITIONS }));
+    const { Sequence: _omit, ...unsequenced } = payment;
+    const out = await run(autofill(client, unsequenced, { definitions: XAHAU_DEFINITIONS }));
     expect(out.Fee).toBe("34");
-    expect(asked[0]!.params).toHaveProperty("tx_blob");
+    // xahaud rejects a probe without Sequence and Fee (invalidTransaction), so the blob must carry placeholders.
+    const probe = await run(decode((asked[0]!.params as { tx_blob: string }).tx_blob, XAHAU_DEFINITIONS));
+    expect(probe).toMatchObject({ Sequence: 0, Fee: "0", SigningPubKey: "" });
   });
 
   it("without definitions keeps using open_ledger_fee", async () => {

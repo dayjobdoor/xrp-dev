@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.1.0-alpha.1 (2026-10-19)
+## 0.1.0-alpha.2 (2026-10-19)
+
+- **Fix**: `autofill` with `definitions` probed `fee` with a blob lacking `Sequence` and `Fee`, which xahaud answers with `invalidTransaction`; every `PasskeyAdapter` send on Xahau without a preset `Fee` failed. The probe now carries `Sequence: 0` and `Fee: "0"` placeholders.
 
 - **`xrp-dev/auth`**: wallet sign-in for apps. `createChallenge` / `isFreshChallenge` (stateless HMAC challenge bound to the app name, 5 min, constant-time compare), `loginMessage`, `verifyMessage`, `loginProofTx` / `verifyProofTx` (an unappliable `AccountSet` memo transaction for wallets that cannot sign messages), `verifyLogin` (server: challenge + signature or proof in one call, returns an address or a failure code) and `login(adapter, { app })` (browser: challenge, sign, post, session cookie).
 - **`xrp-dev/xahau`**: `XAHAU_DEFINITIONS` and `XAHAU_PROTOCOL`, a `server_definitions` snapshot of Xahau (hooks, Import, URIToken, ...). Not re-exported from `.`, so the extra JSON loads only for those who import it.
