@@ -1,6 +1,6 @@
 {
   "name": "xrp-dev",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "description": "XRPL SDK for workerd, Bun, browsers and Node. The main entry holds no keys; wallets are xrp-dev/wallet and the MCP server is xrp-dev/mcp.",
   "keywords": ["xrpl", "xrp", "ripple", "effect", "cloudflare-workers", "workerd", "edge", "codec", "ed25519", "secp256k1"],
   "homepage": "https://github.com/dayjobdoor/xrp-dev/tree/main/packages/core#readme",
@@ -16,6 +16,8 @@
     "./address": { "types": "./dist/address.d.ts", "default": "./dist/address.js" },
     "./codec": { "types": "./dist/codec.d.ts", "default": "./dist/codec.js" },
     "./client": { "types": "./dist/client.d.ts", "default": "./dist/client.js" },
+    "./auth": { "types": "./dist/auth.d.ts", "default": "./dist/auth.js" },
+    "./xahau": { "types": "./dist/xahau.d.ts", "default": "./dist/xahau.js" },
     "./wallet": { "types": "./dist/wallet/index.d.ts", "default": "./dist/wallet/index.js" },
     "./passkey": { "types": "./dist/wallet/passkey.d.ts", "default": "./dist/wallet/passkey.js" },
     "./mcp": { "types": "./dist/mcp/index.d.ts", "default": "./dist/mcp/index.js" },

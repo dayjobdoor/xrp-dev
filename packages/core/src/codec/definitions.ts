@@ -1,7 +1,7 @@
-import raw from "./definitions.json" with { type: "json" };
+import xrplRaw from "./definitions.json" with { type: "json" };
 
-/** The `server_definitions` snapshot (regenerate with `scripts/definitions.ts`). */
-export const definitions = raw;
+/** The XRPL `server_definitions` snapshot (regenerate with `scripts/definitions.ts`). */
+export const definitions = xrplRaw;
 
 export interface Field {
   readonly name: string;
@@ -25,9 +25,30 @@ interface RawField {
 const fieldHeader = (type: number, nth: number): Uint8Array =>
   type < 16 ? (nth < 16 ? Uint8Array.of((type << 4) | nth) : Uint8Array.of(type << 4, nth)) : nth < 16 ? Uint8Array.of(nth, type) : Uint8Array.of(0, type, nth);
 
-const types: Record<string, number> = raw.TYPES;
+export interface Enum {
+  readonly code: ReadonlyMap<string, number>;
+  readonly name: ReadonlyMap<number, string>;
+}
 
-const toField = ([name, f]: readonly [string, RawField]): Field => {
+/** The tables the codec reads. One per ledger (XRPL, Xahau, ...); pass it as the last argument of encode/decode. */
+export interface Definitions {
+  readonly fieldByName: ReadonlyMap<string, Field>;
+  /** Only serialized fields: they are the only ones that appear on the wire. */
+  readonly fieldByOrdinal: ReadonlyMap<number, Field>;
+  /** Fields whose integer value is shown by name. */
+  readonly enumByField: ReadonlyMap<string, Enum>;
+}
+
+/** The five tables of a `server_definitions` response. */
+export interface RawDefinitions {
+  readonly TYPES: Readonly<Record<string, number>>;
+  readonly FIELDS: unknown;
+  readonly TRANSACTION_TYPES: Readonly<Record<string, number>>;
+  readonly LEDGER_ENTRY_TYPES: Readonly<Record<string, number>>;
+  readonly TRANSACTION_RESULTS: Readonly<Record<string, number>>;
+}
+
+const toField = (types: Readonly<Record<string, number>>, [name, f]: readonly [string, RawField]): Field => {
   const typeCode = types[f.type] ?? -2;
   return {
     name,
@@ -35,21 +56,11 @@ const toField = ([name, f]: readonly [string, RawField]): Field => {
     ordinal: typeCode * 65536 + f.nth,
     header: fieldHeader(typeCode, f.nth),
     isVL: f.isVLEncoded,
-    isSerialized: f.isSerialized,
+    // Xahau's server_definitions marks the object/array end markers as not serialized; they are on the wire on both ledgers.
+    isSerialized: f.isSerialized || name.endsWith("EndMarker"),
     isSigning: f.isSigningField,
   };
 };
-
-const fields = (raw.FIELDS as unknown as ReadonlyArray<readonly [string, RawField]>).map(toField);
-
-export const fieldByName: ReadonlyMap<string, Field> = new Map(fields.map((f) => [f.name, f]));
-/** Only serialized fields: they are the only ones that appear on the wire. */
-export const fieldByOrdinal: ReadonlyMap<number, Field> = new Map(fields.filter((f) => f.isSerialized).map((f) => [f.ordinal, f]));
-
-export interface Enum {
-  readonly code: ReadonlyMap<string, number>;
-  readonly name: ReadonlyMap<number, string>;
-}
 
 const makeEnum = (table: Readonly<Record<string, number>>): Enum => ({
   code: new Map(Object.entries(table)),
@@ -72,16 +83,24 @@ const GRANULAR_PERMISSIONS = {
   MPTokenIssuanceUnlock: 65548,
 };
 
-/** Fields whose integer value is shown by name. */
-export const enumByField: ReadonlyMap<string, Enum> = new Map([
-  ["TransactionType", makeEnum(raw.TRANSACTION_TYPES)],
-  ["LedgerEntryType", makeEnum(raw.LEDGER_ENTRY_TYPES)],
-  ["TransactionResult", makeEnum(raw.TRANSACTION_RESULTS)],
-  [
-    "PermissionValue",
-    makeEnum({ ...GRANULAR_PERMISSIONS, ...Object.fromEntries(Object.entries(raw.TRANSACTION_TYPES).map(([k, v]) => [k, v + 1])) }),
-  ],
-]);
+export const makeDefinitions = (raw: RawDefinitions): Definitions => {
+  const fields = (raw.FIELDS as unknown as ReadonlyArray<readonly [string, RawField]>).map((e) => toField(raw.TYPES, e));
+  return {
+    fieldByName: new Map(fields.map((f) => [f.name, f])),
+    fieldByOrdinal: new Map(fields.filter((f) => f.isSerialized).map((f) => [f.ordinal, f])),
+    enumByField: new Map([
+      ["TransactionType", makeEnum(raw.TRANSACTION_TYPES)],
+      ["LedgerEntryType", makeEnum(raw.LEDGER_ENTRY_TYPES)],
+      ["TransactionResult", makeEnum(raw.TRANSACTION_RESULTS)],
+      [
+        "PermissionValue",
+        makeEnum({ ...GRANULAR_PERMISSIONS, ...Object.fromEntries(Object.entries(raw.TRANSACTION_TYPES).map(([k, v]) => [k, v + 1])) }),
+      ],
+    ]),
+  };
+};
+
+export const XRPL_DEFINITIONS: Definitions = makeDefinitions(xrplRaw);
 
 /** UInt64 fields rippled shows as decimal rather than hex. */
 export const decimalUInt64Fields: ReadonlySet<string> = new Set([

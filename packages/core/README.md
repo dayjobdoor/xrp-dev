@@ -31,8 +31,10 @@ bun add xrp-dev effect   # or: npm i xrp-dev effect
 | `xrp-dev` | crypto, address, codec and client. No keys |
 | `xrp-dev/crypto` | sha256 / sha512Half / ripemd160, base58, secp256k1, ed25519 |
 | `xrp-dev/address` | classic addresses, X-addresses, seeds |
-| `xrp-dev/codec` | `encode`, `decode`, signing blobs, `hashTransaction`, `verifyTransaction` |
-| `xrp-dev/client` | `createRpcClient`, `createWsClient`, `autofill`, `submit` |
+| `xrp-dev/codec` | `encode`, `decode`, signing blobs, `hashTransaction`, `verifyTransaction`; each takes optional `defs` (codec tables) last |
+| `xrp-dev/client` | `createRpcClient`, `createWsClient`, `autofill`, `submit`, `NETWORK_PRESETS` |
+| `xrp-dev/xahau` | `XAHAU_DEFINITIONS`: codec tables for Xahau, pass as `defs` |
+| `xrp-dev/auth` | wallet sign-in: `createChallenge`, `verifyLogin` (server), `login(adapter, { app })` (browser) |
 | `xrp-dev/wallet` | keys and signing. Not loaded by the entries above |
 | `xrp-dev/passkey` | xrpl-connect passkey adapter. Needs the optional `xrpl` and `xrpl-connect` peers, types only |
 | `xrp-dev/mcp` | tool registry and JSON-RPC handler. Bin: `xrp-dev-mcp` |

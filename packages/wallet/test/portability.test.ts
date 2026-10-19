@@ -17,7 +17,8 @@ const bundle = (entry: string): string => {
 // P02: nothing Node-specific, and none of the test oracles, may end up in a bundle.
 const ENTRIES = ["../src/index.ts", "../src/passkey.ts"];
 const NODE_TRACES = [/node:/, /require\(/, /\bBuffer\b/, /process\./];
-const ORACLES = [/xrpl(?!\.js)/, /ripple-/];
+// "xrpl" alone also names the ledger in NETWORK_PRESETS; only an import of the xrpl.js package is an oracle leak.
+const ORACLES = [/from\s*["']xrpl["']/, /ripple-/];
 
 describe("P02 bundles carry no Node traces", () => {
   it.each(ENTRIES)("%s", (rel) => {

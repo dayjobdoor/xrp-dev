@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { concatBytes } from "../crypto/hex.js";
 import { CodecError } from "../errors.js";
-import { type Field, enumByField, fieldByName } from "./definitions.js";
+import { type Definitions, type Field, XRPL_DEFINITIONS } from "./definitions.js";
 import { numberBytes } from "./number.js";
 import { NO_ACCOUNT, accountBytes, amountBytes, currencyBytes, fail, hexBytes, int32, isRecord, isXrpCurrency, uint, uint64 } from "./values.js";
 
@@ -92,23 +92,23 @@ const pathSet = (value: unknown, field: string): Encoded =>
     return concatBytes(...parts);
   });
 
-const stArray = (value: unknown, field: string): Encoded =>
+const stArray = (value: unknown, field: string, d: Definitions): Encoded =>
   Effect.gen(function* () {
     const parts: Uint8Array[] = [];
     for (const element of yield* array(value, field)) {
       const keys = isRecord(element) ? Object.keys(element) : [];
-      const inner = keys.length === 1 ? fieldByName.get(keys[0]!) : undefined;
+      const inner = keys.length === 1 ? d.fieldByName.get(keys[0]!) : undefined;
       if (!isRecord(element) || keys.length !== 1) return yield* fail("bad_type", "array elements must be single-key objects like { Memo: {...} }", field);
       if (inner === undefined) return yield* fail("unknown_field", `unknown field ${keys[0]}`, keys[0]!);
       if (inner.type !== "STObject") return yield* fail("bad_type", `${inner.name} is not an object field`, inner.name);
-      parts.push(inner.header, yield* encodeObject(element[inner.name], false), OBJECT_END);
+      parts.push(inner.header, yield* encodeObject(element[inner.name], false, d), OBJECT_END);
     }
     parts.push(ARRAY_END);
     return concatBytes(...parts);
   });
 
-const integer = (f: Field, value: unknown, bytes: 1 | 2 | 4): Encoded => {
-  const names = enumByField.get(f.name);
+const integer = (f: Field, value: unknown, bytes: 1 | 2 | 4, d: Definitions): Encoded => {
+  const names = d.enumByField.get(f.name);
   if (names === undefined) return uint(value, bytes, f.name);
   // decode rejects codes outside the table, so a number is accepted only when it round-trips.
   if (typeof value === "number" && !names.name.has(value)) return Effect.fail(fail("bad_type", `unknown ${f.name} code ${value}`, f.name));
@@ -117,14 +117,14 @@ const integer = (f: Field, value: unknown, bytes: 1 | 2 | 4): Encoded => {
   return code === undefined ? Effect.fail(fail("bad_type", `unknown ${f.name} ${JSON.stringify(value)}`, f.name)) : uint(code, bytes, f.name);
 };
 
-const body = (f: Field, value: unknown): Encoded => {
+const body = (f: Field, value: unknown, d: Definitions): Encoded => {
   switch (f.type) {
     case "UInt8":
-      return integer(f, value, 1);
+      return integer(f, value, 1, d);
     case "UInt16":
-      return integer(f, value, 2);
+      return integer(f, value, 2, d);
     case "UInt32":
-      return integer(f, value, 4);
+      return integer(f, value, 4, d);
     case "UInt64":
       return uint64(value, f.name);
     case "Int32":
@@ -151,9 +151,9 @@ const body = (f: Field, value: unknown): Encoded => {
     case "PathSet":
       return pathSet(value, f.name);
     case "STArray":
-      return stArray(value, f.name);
+      return stArray(value, f.name, d);
     case "STObject":
-      return encodeObject(value, false);
+      return encodeObject(value, false, d);
     case "Vector256":
       return Effect.gen(function* () {
         const hashes = yield* array(value, f.name);
@@ -171,12 +171,12 @@ const body = (f: Field, value: unknown): Encoded => {
  * like rippled). `undefined` and non-serialized (e.g. `hash`) fields are skipped; anything
  * else unknown is an error rather than silently dropped.
  */
-export const encodeObject = (json: unknown, signingOnly: boolean): Encoded =>
+export const encodeObject = (json: unknown, signingOnly: boolean, d: Definitions = XRPL_DEFINITIONS): Encoded =>
   Effect.gen(function* () {
     if (!isRecord(json)) return yield* new CodecError({ reason: "bad_type", message: "expected an object" });
     const present: Field[] = [];
     for (const [name, value] of Object.entries(json)) {
-      const f = fieldByName.get(name);
+      const f = d.fieldByName.get(name);
       if (f === undefined) return yield* fail("unknown_field", `unknown field ${name}`, name);
       if (value !== undefined && f.isSerialized && name.endsWith("EndMarker")) return yield* fail("bad_type", `${name} is a wire marker, not a field`, name);
       if (value !== undefined && f.isSerialized && (!signingOnly || f.isSigning)) present.push(f);
@@ -184,7 +184,7 @@ export const encodeObject = (json: unknown, signingOnly: boolean): Encoded =>
     present.sort((a, b) => a.ordinal - b.ordinal);
     const parts: Uint8Array[] = [];
     for (const f of present) {
-      const bytes = yield* body(f, json[f.name]);
+      const bytes = yield* body(f, json[f.name], d);
       parts.push(f.header, f.isVL ? yield* withLength(bytes, f.name) : bytes);
       if (f.type === "STObject") parts.push(OBJECT_END);
     }

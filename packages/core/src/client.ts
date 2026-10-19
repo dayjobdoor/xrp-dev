@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { ClientError } from "./errors.js";
-import type { TxJson } from "./codec.js";
+import { encode, type TxJson } from "./codec.js";
+import type { Definitions } from "./codec/definitions.js";
 
 export { ClientError };
 
@@ -16,16 +17,62 @@ const LAST_LEDGER_OFFSET = 20;
 export const NETWORKS = ["mainnet", "testnet", "devnet"] as const;
 export type Network = (typeof NETWORKS)[number];
 
+export type NetworkKey = "xrpl:mainnet" | "xrpl:testnet" | "xrpl:devnet" | "xahau:mainnet" | "xahau:testnet";
+
+export interface NetworkPreset {
+  readonly key: NetworkKey;
+  readonly protocol: "xrpl" | "xahau";
+  /** The ledger's NetworkID. Transactions carry it only above 1024 (Xahau). */
+  readonly networkId: number;
+  /** CORS-enabled JSON-RPC, usable from a browser. */
+  readonly rpc: string;
+  readonly ws: string;
+  readonly explorer: string;
+  readonly faucet?: string;
+}
+
 /**
- * Public JSON-RPC nodes. mainnet and testnet answer the CORS preflight, so browsers can use them. rippled's own
+ * Public networks. mainnet and testnet answer the CORS preflight, so browsers can use them. rippled's own
  * s1.ripple.com / s.altnet.rippletest.net answer it with 400 and were rejected for that reason. devnet has no
  * CORS-enabled public JSON-RPC: in a browser use `createWsClient` (WebSocket is not subject to CORS) or a
  * same-origin proxy.
  */
+export const NETWORK_PRESETS: Record<NetworkKey, NetworkPreset> = {
+  "xrpl:mainnet": { key: "xrpl:mainnet", protocol: "xrpl", networkId: 0, rpc: "https://xrplcluster.com/", ws: "wss://xrplcluster.com", explorer: "https://livenet.xrpl.org" },
+  "xrpl:testnet": {
+    key: "xrpl:testnet",
+    protocol: "xrpl",
+    networkId: 1,
+    rpc: "https://testnet.xrpl-labs.com/",
+    ws: "wss://testnet.xrpl-labs.com",
+    explorer: "https://testnet.xrpl.org",
+    faucet: "https://faucet.altnet.rippletest.net/accounts",
+  },
+  "xrpl:devnet": {
+    key: "xrpl:devnet",
+    protocol: "xrpl",
+    networkId: 2,
+    rpc: "https://s.devnet.rippletest.net:51234/",
+    ws: "wss://s.devnet.rippletest.net:51233",
+    explorer: "https://devnet.xrpl.org",
+    faucet: "https://faucet.devnet.rippletest.net/accounts",
+  },
+  "xahau:mainnet": { key: "xahau:mainnet", protocol: "xahau", networkId: 21337, rpc: "https://xahau.network/", ws: "wss://xahau.network", explorer: "https://explorer.xahau.network" },
+  "xahau:testnet": {
+    key: "xahau:testnet",
+    protocol: "xahau",
+    networkId: 21338,
+    rpc: "https://xahau-test.net/",
+    ws: "wss://xahau-test.net",
+    explorer: "https://explorer.xahau-test.net",
+    faucet: "https://xahau-test.net/accounts",
+  },
+};
+
 export const PUBLIC_RPC_URLS: Record<Network, string> = {
-  mainnet: "https://xrplcluster.com/",
-  testnet: "https://testnet.xrpl-labs.com/",
-  devnet: "https://s.devnet.rippletest.net:51234/",
+  mainnet: NETWORK_PRESETS["xrpl:mainnet"].rpc,
+  testnet: NETWORK_PRESETS["xrpl:testnet"].rpc,
+  devnet: NETWORK_PRESETS["xrpl:devnet"].rpc,
 };
 
 export interface RpcClient {
@@ -218,21 +265,32 @@ export const createWsClient = (opts: {
 const isLedgerIndex = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 
 /**
- * Fills only missing Fee, Sequence and LastLedgerSequence. A Fee above `maxFeeDrops` (default 100000 drops = 0.1 XRP,
- * about 10,000x the reference fee) fails rather than clamps, whether the caller or the node supplied it, so a hostile
- * node can burn at most the cap.
+ * Fills only missing Fee, Sequence, LastLedgerSequence and, on a network whose id is above 1024 (Xahau), NetworkID. A
+ * Fee above `maxFeeDrops` (default 100000 drops = 0.1 XRP, about 10,000x the reference fee) fails rather than clamps,
+ * whether the caller or the node supplied it, so a hostile node can burn at most the cap.
+ * With `definitions` (a ledger whose fee depends on the transaction, e.g. Xahau hooks) the fee is asked for this very
+ * transaction (`fee` with `tx_blob`) and `base_fee` is used; `open_ledger_fee` only when the node omits it.
  */
-export const autofill = (client: RpcClient, tx: TxJson, opts: { maxFeeDrops?: bigint } = {}): Effect.Effect<TxJson, ClientError> =>
+export const autofill = (
+  client: RpcClient,
+  tx: TxJson,
+  opts: { maxFeeDrops?: bigint; networkId?: number; definitions?: Definitions } = {},
+): Effect.Effect<TxJson, ClientError> =>
   Effect.gen(function* () {
     const maxFee = opts.maxFeeDrops ?? DEFAULT_MAX_FEE_DROPS;
     const out: TxJson = { ...tx };
+    if (opts.networkId !== undefined && opts.networkId > 1024 && out.NetworkID === undefined) out.NetworkID = opts.networkId;
     const needFee = out.Fee === undefined;
     const needLls = out.LastLedgerSequence === undefined;
     let ledger: number | undefined;
     if (needFee || needLls) {
-      const fee = yield* client.request<{ drops?: { open_ledger_fee?: string }; ledger_current_index?: number }>("fee");
+      const feeParams =
+        needFee && opts.definitions
+          ? { tx_blob: yield* encode({ ...out, SigningPubKey: "" }, opts.definitions).pipe(Effect.mapError((e) => err("bad_input", `fee: ${e.message}`))) }
+          : undefined;
+      const fee = yield* client.request<{ drops?: { base_fee?: string; open_ledger_fee?: string }; ledger_current_index?: number }>("fee", feeParams);
       if (needFee) {
-        const f = fee.drops?.open_ledger_fee;
+        const f = (opts.definitions ? fee.drops?.base_fee : undefined) ?? fee.drops?.open_ledger_fee;
         if (typeof f !== "string" || !/^\d+$/.test(f)) return yield* Effect.fail(err("no_result", "fee: missing drops.open_ledger_fee"));
         out.Fee = f;
       }

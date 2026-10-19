@@ -1,5 +1,5 @@
 import { decodeSeed, deriveAccountId, encodeAccountId, encodeSeed, type Algorithm } from "xrp-dev/address";
-import { decode, encode, encodeForMultisigning, encodeForSigning, hashTransaction, type TxJson } from "xrp-dev/codec";
+import { decode, encode, encodeForMultisigning, encodeForSigning, hashTransaction, type Definitions, type TxJson } from "xrp-dev/codec";
 import { bytesToHex, concatBytes, ed25519, secp256k1, sha512Half } from "xrp-dev/crypto";
 import type { CodecError } from "xrp-dev";
 import { Effect } from "effect";
@@ -82,9 +82,9 @@ const fromOwnedEntropy = (entropy: Uint8Array, opts: { algorithm?: Algorithm }) 
   Wallet.fromEntropy(entropy, opts).pipe(Effect.ensuring(Effect.sync(() => entropy.fill(0))));
 
 /** Encodes and decodes `tx` so the check sees what the signature will cover: the codec accepts numeric TransactionType codes, and decoding yields canonical names. */
-const refuseDangerous = (tx: TxJson) =>
+const refuseDangerous = (tx: TxJson, defs?: Definitions) =>
   Effect.gen(function* () {
-    const decoded = yield* decode(yield* encode(tx));
+    const decoded = yield* decode(yield* encode(tx, defs), defs);
     const refusal = signingRefusal(decoded);
     if (refusal) return yield* new WalletError({ reason: "refused", message: refusal });
     return decoded;
@@ -140,7 +140,7 @@ export class Wallet {
   }
 
   /** Signs a transaction. Multisign adds this wallet's entry to `Signers` instead of `TxnSignature`. */
-  sign(tx: TxJson, opts: { multisign?: boolean } = {}): Effect.Effect<{ tx_blob: string; hash: string }, WalletError | CodecError> {
+  sign(tx: TxJson, opts: { multisign?: boolean; definitions?: Definitions } = {}): Effect.Effect<{ tx_blob: string; hash: string }, WalletError | CodecError> {
     const self = this;
     return this.#withKey((privateKey) =>
       Effect.gen(function* () {
@@ -150,18 +150,18 @@ export class Wallet {
           if ("Signers" in snapshot) return yield* new WalletError({ reason: "bad_tx", message: "transaction already has Signers; multisigned transactions cannot be signed again here" });
           const { TxnSignature: _drop, ...rest } = snapshot;
           const unsigned = { ...rest, SigningPubKey: "" };
-          yield* refuseDangerous(unsigned);
-          const signature = yield* signBytes(yield* encodeForMultisigning(unsigned, self.address), privateKey, self.algorithm);
+          yield* refuseDangerous(unsigned, opts.definitions);
+          const signature = yield* signBytes(yield* encodeForMultisigning(unsigned, self.address, opts.definitions), privateKey, self.algorithm);
           const signer = { Signer: { Account: self.address, SigningPubKey: self.publicKey, TxnSignature: bytesToHex(signature) } };
           const signed = { ...unsigned, Signers: [signer] };
-          const tx_blob = yield* encode(signed);
+          const tx_blob = yield* encode(signed, opts.definitions);
           return { tx_blob, hash: yield* hashTransaction(tx_blob) };
         }
         const unsigned = { ...snapshot, SigningPubKey: self.publicKey };
-        const { Account } = yield* refuseDangerous(unsigned);
+        const { Account } = yield* refuseDangerous(unsigned, opts.definitions);
         if (Account !== self.address) return yield* new WalletError({ reason: "bad_tx", message: "transaction Account is not this wallet's address" });
-        const signature = yield* signBytes(yield* encodeForSigning(unsigned), privateKey, self.algorithm);
-        const tx_blob = yield* encode({ ...unsigned, TxnSignature: bytesToHex(signature) });
+        const signature = yield* signBytes(yield* encodeForSigning(unsigned, opts.definitions), privateKey, self.algorithm);
+        const tx_blob = yield* encode({ ...unsigned, TxnSignature: bytesToHex(signature) }, opts.definitions);
         return { tx_blob, hash: yield* hashTransaction(tx_blob) };
       }),
     );

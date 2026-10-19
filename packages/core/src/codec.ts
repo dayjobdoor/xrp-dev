@@ -5,11 +5,14 @@ import { sha512Half } from "./crypto/hash.js";
 import { bytesToHex, concatBytes, hexToBytes } from "./crypto/hex.js";
 import * as secp256k1 from "./crypto/secp256k1.js";
 import { decodeBytes } from "./codec/decode.js";
+import { type Definitions, XRPL_DEFINITIONS } from "./codec/definitions.js";
 import { encodeObject } from "./codec/encode.js";
 import { accountBytes, hexBytes } from "./codec/values.js";
 import { CodecError } from "./errors.js";
 
 export { CodecError };
+export type { Definitions } from "./codec/definitions.js";
+export { XRPL_DEFINITIONS, makeDefinitions } from "./codec/definitions.js";
 
 /** Transaction / ledger object in rippled's JSON form. */
 export type TxJson = Record<string, unknown>;
@@ -20,18 +23,20 @@ const TX_ID = Uint8Array.of(0x54, 0x58, 0x4e, 0x00); // "TXN\0"
 // rippled refuses more signers than a signer list holds; without the cap one blob buys unbounded signature checks.
 const MAX_SIGNERS = 32;
 
-export const encode = (json: TxJson): Effect.Effect<string, CodecError> => encodeObject(json, false).pipe(Effect.map(bytesToHex));
+export const encode = (json: TxJson, defs: Definitions = XRPL_DEFINITIONS): Effect.Effect<string, CodecError> =>
+  encodeObject(json, false, defs).pipe(Effect.map(bytesToHex));
 
-export const decode = (hex: string): Effect.Effect<TxJson, CodecError> => hexBytes(hex, "hex").pipe(Effect.flatMap(decodeBytes));
+export const decode = (hex: string, defs: Definitions = XRPL_DEFINITIONS): Effect.Effect<TxJson, CodecError> =>
+  hexBytes(hex, "hex").pipe(Effect.flatMap((b) => decodeBytes(b, defs)));
 
 /** `STX\0` + the signing fields only (TxnSignature, Signers, … dropped). */
-export const encodeForSigning = (json: TxJson): Effect.Effect<Uint8Array, CodecError> =>
-  encodeObject(json, true).pipe(Effect.map((body) => concatBytes(SIGN, body)));
+export const encodeForSigning = (json: TxJson, defs: Definitions = XRPL_DEFINITIONS): Effect.Effect<Uint8Array, CodecError> =>
+  encodeObject(json, true, defs).pipe(Effect.map((body) => concatBytes(SIGN, body)));
 
 /** `SMT\0` + signing fields with SigningPubKey emptied + the signer's AccountID. */
-export const encodeForMultisigning = (json: TxJson, signerAccount: string): Effect.Effect<Uint8Array, CodecError> =>
+export const encodeForMultisigning = (json: TxJson, signerAccount: string, defs: Definitions = XRPL_DEFINITIONS): Effect.Effect<Uint8Array, CodecError> =>
   Effect.gen(function* () {
-    const body = yield* encodeObject({ ...json, SigningPubKey: "" }, true);
+    const body = yield* encodeObject({ ...json, SigningPubKey: "" }, true, defs);
     return concatBytes(MULTISIGN, body, yield* accountBytes(signerAccount, "signerAccount"));
   });
 
@@ -59,18 +64,18 @@ const verifyBytes = (signature: Uint8Array, data: Uint8Array, publicKey: Uint8Ar
  * key. Anything else is false.
  * It does not check that the key is authorised for `Account` (see `signerMatchesAccount`).
  */
-export const verifyTransaction = (blob: string): Effect.Effect<boolean, CodecError> =>
+export const verifyTransaction = (blob: string, defs: Definitions = XRPL_DEFINITIONS): Effect.Effect<boolean, CodecError> =>
   Effect.gen(function* () {
-    const tx = yield* decode(blob);
+    const tx = yield* decode(blob, defs);
     // The signature is checked over the re-encoding, so a non-canonical blob would verify bytes other than the ones submitted.
-    if ((yield* encode(tx)).toLowerCase() !== blob.toLowerCase()) return false;
+    if ((yield* encode(tx, defs)).toLowerCase() !== blob.toLowerCase()) return false;
     const { TxnSignature, Signers, ...rest } = tx as TxJson & { TxnSignature?: unknown; Signers?: unknown };
     const hex = (h: unknown) => (typeof h === "string" ? hexToBytes(h).pipe(Effect.orElseSucceed(() => new Uint8Array())) : Effect.succeed(new Uint8Array()));
     const pubKey = typeof rest.SigningPubKey === "string" ? rest.SigningPubKey : "";
     const hasTxnSig = typeof TxnSignature === "string" && TxnSignature.length > 0;
     if (pubKey.length > 0) {
       if (!hasTxnSig || Signers !== undefined) return false;
-      return yield* verifyBytes(yield* hex(TxnSignature), yield* encodeForSigning(rest), yield* hex(pubKey));
+      return yield* verifyBytes(yield* hex(TxnSignature), yield* encodeForSigning(rest, defs), yield* hex(pubKey));
     }
     if (hasTxnSig || !Array.isArray(Signers) || Signers.length === 0 || Signers.length > MAX_SIGNERS) return false;
     let previous = "";
@@ -80,16 +85,16 @@ export const verifyTransaction = (blob: string): Effect.Effect<boolean, CodecErr
       const id = bytesToHex(yield* decodeAccountId(s.Account).pipe(Effect.orElseSucceed(() => new Uint8Array())));
       if (id <= previous) return false; // also rejects an undecodable (empty) account
       previous = id;
-      const data = yield* encodeForMultisigning(rest, s.Account);
+      const data = yield* encodeForMultisigning(rest, s.Account, defs);
       if (!(yield* verifyBytes(yield* hex(s.TxnSignature), data, yield* hex(s.SigningPubKey)))) return false;
     }
     return true;
   });
 
 /** True when a single-signed blob's `SigningPubKey` is the master key of its `Account`. */
-export const signerMatchesAccount = (blob: string): Effect.Effect<boolean, CodecError> =>
+export const signerMatchesAccount = (blob: string, defs: Definitions = XRPL_DEFINITIONS): Effect.Effect<boolean, CodecError> =>
   Effect.gen(function* () {
-    const tx = yield* decode(blob);
+    const tx = yield* decode(blob, defs);
     const publicKey = yield* hexToBytes(String(tx.SigningPubKey ?? "")).pipe(Effect.orElseSucceed(() => new Uint8Array()));
     if (publicKey.length !== 33) return false;
     const address = yield* deriveAccountId(publicKey).pipe(Effect.flatMap(encodeAccountId), Effect.orElseSucceed(() => ""));

@@ -1,7 +1,7 @@
 import { entropyFromPrf, signingRefusal, toSecretNumbers, Wallet, type Algorithm } from "./index.js";
 import { prfSalt, type PrfDerivation } from "./prf.js";
 import { autofill, submit, type RpcClient } from "xrp-dev/client";
-import { decode, type TxJson } from "xrp-dev/codec";
+import { decode, type Definitions, type TxJson } from "xrp-dev/codec";
 import { Effect } from "effect";
 import type { SubmittableTransaction } from "xrpl";
 import type { AccountInfo, ConnectOptions, NetworkInfo, ReconnectOptions, SignedMessage, SignedTransaction, SubmittedTransaction, WalletAdapter, WalletCapabilities } from "xrpl-connect";
@@ -39,6 +39,10 @@ export interface PasskeyAdapterOptions {
   algorithm?: Algorithm;
   /** Derivation inputs; the default is this package's v1 scheme. Set it to open an account another app derived. */
   derivation?: PrfDerivation;
+  /** Codec tables of the ledger. Required for Xahau (`XAHAU_DEFINITIONS` from `xrp-dev/xahau`); defaults to the XRPL's. */
+  definitions?: Definitions;
+  /** The ledger's NetworkID (`NetworkPreset.networkId`). Above 1024 (Xahau) it is added to every transaction. */
+  networkId?: number;
 }
 
 const randomChallenge = () => crypto.getRandomValues(new Uint8Array(32));
@@ -256,10 +260,10 @@ export class PasskeyAdapter implements WalletAdapter {
     requireNumericFlags(snapshot);
     if (snapshot.Account === undefined) snapshot.Account = account.address;
     else if (snapshot.Account !== account.address) throw new PasskeyError("transaction Account is not the connected account");
-    const tx = await Effect.runPromise(autofill(this.#opts.client, snapshot));
+    const tx = await Effect.runPromise(autofill(this.#opts.client, snapshot, { ...(this.#opts.networkId !== undefined && { networkId: this.#opts.networkId }), ...(this.#opts.definitions && { definitions: this.#opts.definitions }) }));
     return this.#withWallet(async (wallet) => {
-      const { tx_blob, hash } = await Effect.runPromise(wallet.sign(tx));
-      const signed = await Effect.runPromise(decode(tx_blob));
+      const { tx_blob, hash } = await Effect.runPromise(wallet.sign(tx, this.#opts.definitions ? { definitions: this.#opts.definitions } : {}));
+      const signed = await Effect.runPromise(decode(tx_blob, this.#opts.definitions));
       return { hash, tx_blob, tx_json: signed as unknown as SubmittableTransaction, signature: signed.TxnSignature as string, signerAddress: wallet.address };
     });
   }

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { bytesToHex, concatBytes, equalBytes } from "../crypto/hex.js";
 import type { CodecError } from "../errors.js";
-import { type Field, enumByField, fieldByOrdinal } from "./definitions.js";
+import { type Definitions, type Field, XRPL_DEFINITIONS } from "./definitions.js";
 import { numberToJson } from "./number.js";
 import { NO_ACCOUNT, accountString, amountToJson, amountWidth, currencyToJson, fail, isXrpCurrency, uint64ToJson } from "./values.js";
 
@@ -27,7 +27,7 @@ const take = (r: Reader, n: number, field = "binary"): Decoded<Uint8Array> => {
 
 const u8 = (r: Reader): Decoded<number> => take(r, 1).pipe(Effect.map((b) => b[0]!));
 
-const readField = (r: Reader): Decoded<Field> =>
+const readField = (r: Reader, d: Definitions): Decoded<Field> =>
   Effect.gen(function* () {
     const first = yield* u8(r);
     let type = first >> 4;
@@ -35,7 +35,7 @@ const readField = (r: Reader): Decoded<Field> =>
     // A zero nibble means "next byte", which must then be >= 16 (anything else is non-canonical).
     if (type === 0 && (type = yield* u8(r)) < 16) return yield* fail("bad_type", "non-canonical field id", "binary");
     if (nth === 0 && (nth = yield* u8(r)) < 16) return yield* fail("bad_type", "non-canonical field id", "binary");
-    const f = fieldByOrdinal.get(type * 65536 + nth);
+    const f = d.fieldByOrdinal.get(type * 65536 + nth);
     return f ?? (yield* fail("unknown_field", `unknown field (type ${type}, code ${nth})`, "binary"));
   });
 
@@ -100,14 +100,14 @@ const pathSet = (r: Reader, field: string): Decoded<unknown[][]> =>
     }
   });
 
-const stArray = (r: Reader, field: string): Decoded<unknown[]> =>
+const stArray = (r: Reader, field: string, d: Definitions): Decoded<unknown[]> =>
   Effect.gen(function* () {
     const out: unknown[] = [];
     for (;;) {
-      const f = yield* readField(r);
+      const f = yield* readField(r, d);
       if (f.name === "ArrayEndMarker") return out;
       if (f.type !== "STObject" || f.name === "ObjectEndMarker") return yield* fail("bad_type", `${f.name} cannot be an array element`, field);
-      out.push({ [f.name]: yield* decodeObject(r, true) });
+      out.push({ [f.name]: yield* decodeObject(r, true, d) });
     }
   });
 
@@ -126,13 +126,13 @@ const lengthPrefixed = (f: Field, data: Uint8Array): Decoded<unknown> => {
   }
 };
 
-const value = (f: Field, r: Reader): Decoded<unknown> =>
+const value = (f: Field, r: Reader, d: Definitions): Decoded<unknown> =>
   Effect.gen(function* () {
     if (f.isVL) return yield* lengthPrefixed(f, yield* take(r, yield* readLength(r), f.name));
     const width = UINT_BYTES[f.type];
     if (width !== undefined) {
       const n = (yield* take(r, width, f.name)).reduce((acc, b) => acc * 256 + b, 0);
-      const names = enumByField.get(f.name);
+      const names = d.enumByField.get(f.name);
       if (names === undefined) return n;
       return names.name.get(n) ?? (yield* fail("bad_type", `unknown ${f.name} code ${n}`, f.name));
     }
@@ -161,22 +161,22 @@ const value = (f: Field, r: Reader): Decoded<unknown> =>
       case "PathSet":
         return yield* pathSet(r, f.name);
       case "STArray":
-        return yield* stArray(r, f.name);
+        return yield* stArray(r, f.name, d);
       case "STObject":
-        return yield* decodeObject(r, true);
+        return yield* decodeObject(r, true, d);
       default:
         return yield* fail("bad_type", `${f.type} fields are not supported`, f.name);
     }
   });
 
 /** Nested objects end with an 0xE1 marker; the top level ends with the data. Fields must be strictly ascending. */
-const decodeObject = (r: Reader, nested: boolean): Decoded<Record<string, unknown>> =>
+const decodeObject = (r: Reader, nested: boolean, d: Definitions): Decoded<Record<string, unknown>> =>
   Effect.gen(function* () {
     if (nested && ++r.depth > MAX_DEPTH) return yield* fail("bad_length", "objects nested too deeply", "binary");
     const out: Record<string, unknown> = {};
     let last = -1;
     while (r.pos < r.bytes.length || nested) {
-      const f = yield* readField(r);
+      const f = yield* readField(r, d);
       if (f.name === "ObjectEndMarker") {
         if (nested) {
           r.depth--;
@@ -187,9 +187,10 @@ const decodeObject = (r: Reader, nested: boolean): Decoded<Record<string, unknow
       if (f.name === "ArrayEndMarker") return yield* fail("bad_type", "unexpected array end marker", f.name);
       if (f.ordinal <= last) return yield* fail("bad_type", "fields out of order or duplicated", f.name);
       last = f.ordinal;
-      out[f.name] = yield* value(f, r);
+      out[f.name] = yield* value(f, r, d);
     }
     return out;
   });
 
-export const decodeBytes = (bytes: Uint8Array): Decoded<Record<string, unknown>> => decodeObject({ bytes, pos: 0, depth: 0 }, false);
+export const decodeBytes = (bytes: Uint8Array, d: Definitions = XRPL_DEFINITIONS): Decoded<Record<string, unknown>> =>
+  decodeObject({ bytes, pos: 0, depth: 0 }, false, d);
