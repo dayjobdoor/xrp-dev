@@ -1,7 +1,7 @@
 {
   "name": "xrp-dev-mcp",
   "private": true,
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "description": "XRPL tool registry for MCP servers, plus a stdio server (xrp-dev-mcp) for Node and Bun. Reads and prepares; never signs.",
   "keywords": [
     "xrpl",
