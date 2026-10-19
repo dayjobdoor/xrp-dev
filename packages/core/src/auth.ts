@@ -71,9 +71,10 @@ export const loginProofTx = (p: { app: string; challenge: string; account: strin
   Account: p.account,
   Sequence: 0,
   Fee: "0",
-  // Xaman's sign() wants an absolute value of at least 32570 (smaller ones read as relative offsets).
-  // Being present also lets `autofill` skip every network call
-  LastLedgerSequence: 32570,
+  // Xaman's sign() wants an absolute value (at least 32570; smaller ones read as relative offsets). Xaman may raise one
+  // that is near or past expiry, and xrpl-connect rejects a raise of more than 50 ledgers, so use the maximum: it never
+  // expires. Being present also lets `autofill` skip every network call
+  LastLedgerSequence: 4294967295,
   Memos: [{ Memo: { MemoType: hex("login"), MemoData: hex(loginMessage(p.app, p.challenge)) } }],
 });
 

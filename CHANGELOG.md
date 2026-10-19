@@ -2,7 +2,7 @@
 
 ## 0.1.0-alpha.3 (unreleased)
 
-- **Fix**: `loginProofTx` set `LastLedgerSequence: 1` and `SigningPubKey: ""`, so `login()` with Xaman (xrpl-connect's `XamanAdapter`) never reached the wallet: its `sign()` refuses a `LastLedgerSequence` below 32570 (small values read as relative offsets), and an empty `SigningPubKey` turns the payload into a multisign request. The proof now carries `LastLedgerSequence: 32570` and leaves `SigningPubKey` to the signer. It stays unappliable (`Sequence` 0, `Fee` 0), and `verifyProofTx` is unchanged.
+- **Fix**: `loginProofTx` set `LastLedgerSequence: 1` and `SigningPubKey: ""`, so `login()` with Xaman (xrpl-connect's `XamanAdapter`) never reached the wallet: its `sign()` refuses a `LastLedgerSequence` below 32570 (small values read as relative offsets), and an empty `SigningPubKey` turns the payload into a multisign request. The proof now carries `LastLedgerSequence: 4294967295`, the largest value `sign()` accepts, so Xaman never sees it as expired and has no reason to raise it (xrpl-connect rejects a raise of more than 50 ledgers). `SigningPubKey` is left to the signer. The proof stays unappliable (`Sequence` 0, `Fee` 0), and `verifyProofTx` is unchanged. Not yet confirmed against the Xaman app itself.
 
 ## 0.1.0-alpha.2 (2026-10-19)
 
