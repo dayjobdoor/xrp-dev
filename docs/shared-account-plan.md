@@ -11,8 +11,8 @@ The wallet key is derived on the client from the passkey PRF output (`Wallet.fro
 ## Mechanism
 1. Pick one RP ID, e.g. the domain of the canonical app. Serve `/.well-known/webauthn` there: `{"origins":["https://xrp.sh","https://pjq.jp","https://8102.jp", ...]}`.
 2. Every app passes that `rpId` to `Passkey.connect` / registration (`rpId` option already exists in `xrp-dev/wallet/passkey`).
-3. Chrome 128+ and Safari 18+ honour the list. Firefox does not (not measured here). Browsers without support fall back to a per-app credential, so the address differs there: show a notice.
-4. Browsers cap the number of distinct labels in the list (reported as about 5; verify before relying on it). Count registrable domains, not subdomains.
+3. Chrome 128+ and Safari 18+ honour the list. Firefox does not (not measured here). There is no automatic fallback: on an unsupported browser a non-canonical origin that passes the shared `rpId` gets a SecurityError. Each app must detect support (`PublicKeyCredential.getClientCapabilities()`, `relatedOrigins`) and either refuse those users or register under its own `rpId`. The second route yields a different address, so one person would hold two ledger accounts. Decision needed.
+4. Browsers cap the number of distinct eTLD+1 labels in the list (reported as about 5; verify). Current labels: xrp (xrp.sh), pjq, 8102, the yatteruka punycode domain, 589 (workers.dev), plus xrpeco and xrpst if they get custom domains. That is already 5 to 6.
 5. `*.589.workers.dev` hosts can share `rpId: "589.workers.dev"` without the file (workers.dev is on the Public Suffix List). Useful for dev stages only.
 
 ## Name ledger
@@ -27,6 +27,7 @@ The wallet key is derived on the client from the passkey PRF output (`Wallet.fro
 - After a rename call `PublicKeyCredential.signalCurrentUserDetails({ rpId, userId, name, displayName })` so the passkey manager shows the new name.
 
 ## Steps
+0. Go/no-go: count the eTLD+1 labels and test the cap in Chrome and Safari. If over the cap, drop to plan A (one parent domain).
 1. xrp-dev: `renameName` + tests; drop "immutable" wording in `registerPasskeyAccount`/CHANGELOG.
 2. xrpeco: rename endpoint, UI, URL resolution; run on a dev stage.
 3. Pick the RP ID domain; publish `/.well-known/webauthn`; set `rpId` in each app.
