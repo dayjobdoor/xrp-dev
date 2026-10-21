@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.4 (unreleased)
+
+- **CI**: a re-run or queued run whose `plan` read a stale `npm view` (registry lag right after another run published) no longer fails the publish job: an exact-version `cannot publish over the previously published versions` 403 counts as already published, and `Tag and release` is skipped when the tag exists.
+
 ## 0.1.0-alpha.3 (2026-10-21)
 
 - **`xrp-dev/name`**: one unique, immutable name per account, bound at sign-up, for every app. `xrp-dev/name` (browser-safe, imports no `effect`): rules (`parseName`, `RESERVED_NAMES`: lower case `[a-z0-9_]`, 3-20, no leading or trailing `_`, xrpst's reserved words plus `vocab` and route-like words), `NameError` (a plain `Error` with `_tag`, `code`, `reason`) and the client half (`checkNameAvailability`, `createNameChecker`, `nameErrorFrom`, `registerWithName`, which validates locally and calls `register(name)` synchronously so Safari keeps the user activation; a name taken meanwhile comes back as `name_taken` from `login()`, leaving an accepted orphan passkey). `xrp-dev/name/server`: `registerPasskeyAccount`, `claimName`, `loginWithName`, `checkNameAvailable`, `nameAvailabilityHandler` and the Effect-based `validateName` over a `NameStore` of `findByAccount`, `findByName` and `create`; the database's UNIQUE error becomes `name_taken` and a same-account race returns the existing row. Wire codes `name_required` 428, `name_invalid` 400 (+ `reason`), `name_taken` 409 match xrpst. `login()` now throws a `LoginError` (an `Error` with `status`, `code`, `reason`).

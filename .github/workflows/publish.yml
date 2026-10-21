@@ -115,13 +115,21 @@ jobs:
         env:
           TAG: ${{ needs.plan.outputs.tag }}
           VERSION: ${{ needs.plan.outputs.version }}
-        run: npm publish "./pack/xrp-dev-$VERSION.tgz" --tag "$TAG" # provenance is automatic with trusted publishing from a public repo
+        # `plan`'s `npm view` can lag the registry right after a concurrent run published, so an exact-version
+        # "cannot publish over" 403 means this version is already out: succeed instead of failing.
+        run: |
+          # provenance is automatic with trusted publishing from a public repo
+          npm publish "./pack/xrp-dev-$VERSION.tgz" --tag "$TAG" 2> publish.err && { cat publish.err >&2; exit 0; }
+          cat publish.err >&2
+          grep -q "previously published versions: $VERSION\." publish.err || exit 1
+          echo "npm already has xrp-dev@$VERSION: nothing to publish"
       - name: Tag and release
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           TAG: ${{ needs.plan.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then echo "v$VERSION already tagged: nothing to release"; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "xrp-dev v$VERSION"
