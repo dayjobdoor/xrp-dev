@@ -117,11 +117,37 @@ export type PaymentGate<E extends GateEnv = GateEnv> = MiddlewareHandler<E> & {
   verifyOnly: MiddlewareHandler<E>;
 };
 
+const verifiedContexts = new WeakSet<object>();
+const inflight = new Map<string, object>();
+
+/** One request at a time per invoice (per process). The owner context may re-enter; a duplicate gets 409. */
+async function withClaim<T>(invoiceId: string | undefined, c: Context<any>, run: () => Promise<T>): Promise<T | Response> {
+  if (!invoiceId) return run();
+  const owner = inflight.get(invoiceId);
+  if (owner === c) return run();
+  if (owner) return c.json({ error: "payment_in_progress" }, 409);
+  inflight.set(invoiceId, c);
+  try {
+    return await run();
+  } finally {
+    inflight.delete(invoiceId);
+  }
+}
+
+// ponytail: process-local cap; a shared deployment should pass its own `invoiceStore` with real eviction.
+const MAX_MEMORY_INVOICES = 10_000;
+
 class MemoryInvoices implements InvoiceStore {
   private readonly map = new Map<string, { expiresAtMs: number; reqs: PaymentRequirements[] }>();
 
   put(invoiceId: string, reqs: PaymentRequirements[], params: { ttlSeconds: number }): void {
-    this.map.set(invoiceId, { expiresAtMs: Date.now() + params.ttlSeconds * 1000, reqs });
+    const now = Date.now();
+    if (this.map.size >= MAX_MEMORY_INVOICES) {
+      for (const [id, item] of this.map) if (item.expiresAtMs <= now) this.map.delete(id);
+      // Still full: drop the oldest (Map keeps insertion order) so unauthenticated 402s cannot grow memory without bound.
+      while (this.map.size >= MAX_MEMORY_INVOICES) this.map.delete(this.map.keys().next().value as string);
+    }
+    this.map.set(invoiceId, { expiresAtMs: now + params.ttlSeconds * 1000, reqs });
   }
 
   get(invoiceId: string): PaymentRequirements[] | undefined {
@@ -265,47 +291,42 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
       }
       const invoiceId = typeof payload.payload.invoiceId === "string" ? payload.payload.invoiceId : undefined;
       if (!invoiceId) return c.json({ error: "missing_invoiceId" }, 400);
-      const stored = await invoices.get(invoiceId);
-      if (!stored?.length) return c.json({ error: "unknown_invoice_id" }, 400);
-      const selected = stored.find((row) => requirementsMatch(row, payload.accepted));
-      if (!selected) return c.json({ error: "payment_requirements_mismatch" }, 402);
+      return withClaim(invoiceId, c, async () => {
+        const stored = await invoices.get(invoiceId);
+        if (!stored?.length) return c.json({ error: "unknown_invoice_id" }, 400);
+        const selected = stored.find((row) => requirementsMatch(row, payload.accepted));
+        if (!selected) return c.json({ error: "payment_requirements_mismatch" }, 402);
 
-      const paidSecure = isRecord(payload.extensions) ? payload.extensions[X402_SECURE] : undefined;
-      if (params.x402SecurePolicyId && !isRecord(paidSecure)) {
-        return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds, stored, "x402_secure_extension_required");
-      }
-
-      let verify: VerifyResult;
-      try {
-        verify = await facilitator.verify({ paymentHeader: signature, paymentRequirements: selected });
-      } catch (err) {
-        const transient = transientVerify(err);
-        if (transient) {
-          c.header("Retry-After", String(transient.retryAfter));
-          if (transient.correlationId) c.header("X-Correlation-ID", transient.correlationId);
-          return c.json(transient, 503);
+        const paidSecure = isRecord(payload.extensions) ? payload.extensions[X402_SECURE] : undefined;
+        if (params.x402SecurePolicyId && !isRecord(paidSecure)) {
+          return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds, stored, "x402_secure_extension_required");
         }
-        return c.json({ error: `verify_http_error:${messageOf(err)}` }, 502);
-      }
-      if (!verify.isValid) {
-        return challenge(
-          c,
-          params,
-          facilitator,
-          invoices,
-          ttl,
-          scheme,
-          network,
-          asset,
-          maxTimeoutSeconds,
-          stored,
-          `verify_failed:${verify.invalidReason ?? ""}`,
-        );
-      }
-      const verified = { invoiceId, selected, verify, paymentSignature: signature };
-      cache.set(c, verified);
-      if (!settle) return next();
-      return finishSettle(c, next, facilitator, invoices, params, verified);
+
+        let verify: VerifyResult;
+        try {
+          verify = await facilitator.verify({ paymentHeader: signature, paymentRequirements: selected });
+        } catch (err) {
+          const transient = transientVerify(err);
+          if (transient) {
+            c.header("Retry-After", String(transient.retryAfter));
+            if (transient.correlationId) c.header("X-Correlation-ID", transient.correlationId);
+            return c.json(transient, 503);
+          }
+          return c.json({ error: `verify_http_error:${messageOf(err)}` }, 502);
+        }
+        if (!verify.isValid) {
+          return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds, stored, `verify_failed:${verify.invalidReason ?? ""}`);
+        }
+        // With a secure policy the facilitator's decision token is the proof the policy ran: no token, no settle.
+        if (params.x402SecurePolicyId && !decisionToken(verify)) {
+          return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds, stored, "x402_secure_decision_token_missing");
+        }
+        const verified = { invoiceId, selected, verify, paymentSignature: signature };
+        cache.set(c, verified);
+        verifiedContexts.add(c);
+        if (!settle) return next();
+        return finishSettle(c, next, facilitator, invoices, params, verified);
+      });
     };
 
   const gate = handle(params.settle ?? true) as PaymentGate<E>;
@@ -322,21 +343,32 @@ export async function chargeOnDelivery<E extends GateEnv>(
   gate: PaymentGate<E>,
   produce: () => Promise<JsonRecord | Response>,
 ): Promise<Response> {
-  if (!c.req.header(HEADER_PAYMENT_SIGNATURE)) {
+  const signature = c.req.header(HEADER_PAYMENT_SIGNATURE);
+  if (!signature) {
     return (await gate(c, async () => {})) ?? c.json({}, 402);
   }
-  let passed = false;
-  const refused = await gate.verifyOnly(c, async () => {
-    passed = true;
+  // Hold the invoice across verify, produce and settle so a duplicate request cannot run produce() a second time.
+  let claimId: string | undefined;
+  try {
+    claimId = decodeSignature(signature).payload.invoiceId as string | undefined;
+  } catch {
+    /* the gate answers a malformed header with 400 */
+  }
+  return withClaim(typeof claimId === "string" ? claimId : undefined, c, async () => {
+    let passed = false;
+    const refused = await gate.verifyOnly(c, async () => {
+      passed = true;
+    });
+    // `passed` alone is not proof: the gate also calls next for OPTIONS and for paths outside `path`, unverified.
+    if (!passed || !verifiedContexts.has(c)) return refused ?? c.json({}, 402);
+    const delivered = await produce();
+    if (delivered instanceof Response) return delivered;
+    let settled = false;
+    const after = await gate(c, async () => {
+      settled = true;
+    });
+    return settled ? c.json(delivered) : (after ?? c.json({}, 402));
   });
-  if (!passed) return refused ?? c.json({}, 402);
-  const delivered = await produce();
-  if (delivered instanceof Response) return delivered;
-  let settled = false;
-  const after = await gate(c, async () => {
-    settled = true;
-  });
-  return settled ? c.json(delivered) : (after ?? c.json({}, 402));
 }
 
 async function finishSettle<E extends GateEnv>(
