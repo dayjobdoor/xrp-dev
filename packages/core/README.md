@@ -33,7 +33,7 @@ bun add xrp-dev effect   # or: npm i xrp-dev effect
 | `xrp-dev/address` | classic addresses, X-addresses, seeds |
 | `xrp-dev/codec` | `encode`, `decode`, signing blobs, `hashTransaction`, `verifyTransaction`; each takes optional `defs` (codec tables) last |
 | `xrp-dev/client` | `createRpcClient`, `createWsClient`, `autofill`, `submit`, `NETWORK_PRESETS` |
-| `xrp-dev/xahau` | `XAHAU_DEFINITIONS`: codec tables for Xahau, pass as `defs` |
+| `xrp-dev/xahau` | `XAHAU_DEFINITIONS`: codec tables for Xahau, pass as `defs`. Types for the Xahau-only transactions (`Remit`, `URITokenMint`, `SetHook`, `Import`, ..., union `XahauTransaction`); each is assignable to `TxJson` |
 | `xrp-dev/auth` | wallet sign-in: `createChallenge`, `verifyLogin` (server), `login(adapter, { app })` (browser) |
 | `xrp-dev/name` | one unique name per account: rules, client checks (`createNameChecker`, `registerWithName`). Browser-safe, no `effect` |
 | `xrp-dev/name/server` | the server half: store helpers (`registerPasskeyAccount`, `loginWithName`), availability handler. Re-exports `xrp-dev/name` |
