@@ -47,7 +47,7 @@
     "@types/node": "26.6.5",
     "effect": "^4.0.2",
     "fast-check": "^4.10.2",
-    "workerd": "1.20260918.1",
+    "workerd": "1.20261018.1",
     "ripple-address-codec": "^5.0.1",
     "ripple-binary-codec": "^2.11.0",
     "ripple-keypairs": "^3.1.0",
