@@ -3,7 +3,7 @@
 ## 0.1.0-alpha.4 (2026-10-22)
 
 - **`xrp-dev/xahau`**: transaction types for the Xahau-only transactions (`SetHook`, `Import`, `Invoke`, `ClaimReward`, `SetRemarks`, `Cron`, `CronSet`, `Remit`, `URIToken*`, plus `Hook`, `Remark`, `XahauAmount`, union `XahauTransaction`), after xahau.js. Types only, `Flags` are numbers, each is assignable to `TxJson`.
-- **Wallet**: `signingRefusal` refuses an `Import` whose XPOP's inner XRPL transaction is `SetRegularKey`, `SignerListSet` or `AccountSet` (Xahau carries the keying and the mainnet flags over to the account, and an empty `SetRegularKey` without a signer list disables the master key), and an `Import` whose XPOP it cannot read. Other inner transactions stay signable. It reads the inner type from the blob's first field, so no full decode runs.
+- **Wallet**: `signingRefusal` refuses an `Import` whose XPOP's inner XRPL transaction is `SetRegularKey` or `SignerListSet` (Xahau carries the keying over to the account; an empty `SetRegularKey` without a signer list disables the master key), and an `Import` whose XPOP it cannot read. An inner `AccountSet` (the standard burn-to-mint transaction) and other inner transactions stay signable. It reads the inner type from the blob's first field, so no full decode runs.
 - **CI**: a re-run or queued run whose `plan` read a stale `npm view` (registry lag right after another run published) no longer fails the publish job: an exact-version `cannot publish over the previously published versions` 403 counts as already published, and `Tag and release` is skipped when the tag exists.
 
 ## 0.1.0-alpha.3 (2026-10-21)

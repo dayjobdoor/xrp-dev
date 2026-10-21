@@ -198,8 +198,9 @@ export class Wallet {
 }
 
 // Xahau's Import syncs the account from the XPOP's inner XRPL transaction: SetRegularKey / SignerListSet carry keying over
-// (an empty SetRegularKey without a signer list disables the master key), AccountSet carries the mainnet flags.
-const IMPORT_KEEPS_AUTHORITY: Record<number, string> = { 3: "AccountSet", 5: "SetRegularKey", 12: "SignerListSet" }; // XRPL TransactionType codes
+// (an empty SetRegularKey without a signer list disables the master key). An inner AccountSet is left signable: it is the
+// standard burn-to-mint transaction and only carries the account's own mainnet flags.
+const IMPORT_KEEPS_AUTHORITY: Record<number, string> = { 5: "SetRegularKey", 12: "SignerListSet" }; // XRPL TransactionType codes
 
 /**
  * Transaction type code of the XRPL transaction inside an XPOP (hex JSON with `transaction.blob`), `undefined` if

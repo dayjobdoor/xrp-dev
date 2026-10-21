@@ -221,9 +221,11 @@ describe("signing refusals", () => {
       const blob = await run(encode({ Account: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Fee: "10", Sequence: 1, SigningPubKey: "", ...inner }));
       return bytesToHex(new TextEncoder().encode(JSON.stringify({ transaction: { blob } }))).toUpperCase();
     };
-    for (const inner of [{ TransactionType: "SetRegularKey" }, { TransactionType: "SignerListSet", SignerQuorum: 0 }, { TransactionType: "AccountSet" }]) {
+    for (const inner of [{ TransactionType: "SetRegularKey" }, { TransactionType: "SignerListSet", SignerQuorum: 0 }]) {
       expect(signingRefusal({ TransactionType: "Import", Blob: await xpop(inner) })).toMatch(/署名しません/);
     }
+    // The burn-to-mint inner transaction (AccountSet with OperationLimit) and a Payment are signable; this also proves the reader parses.
+    expect(signingRefusal({ TransactionType: "Import", Blob: await xpop({ TransactionType: "AccountSet", OperationLimit: 21337 }) })).toBeUndefined();
     expect(signingRefusal({ TransactionType: "Import", Blob: await xpop({ TransactionType: "Payment", Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Amount: "1" }) })).toBeUndefined();
     expect(signingRefusal({ TransactionType: "Import", Blob: "DEADBEEF" })).toMatch(/署名しません/);
     expect(signingRefusal({ TransactionType: "Import" })).toMatch(/署名しません/);
