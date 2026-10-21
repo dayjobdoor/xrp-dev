@@ -2,6 +2,7 @@
 
 ## 0.1.0-alpha.4 (unreleased)
 
+- **`xrp-dev/xahau`**: transaction types for the Xahau-only transactions (`SetHook`, `Import`, `Invoke`, `ClaimReward`, `SetRemarks`, `Cron`, `CronSet`, `Remit`, `URIToken*`, plus `Hook`, `Remark`, `XahauAmount`, union `XahauTransaction`), after xahau.js. Types only, `Flags` are numbers, each is assignable to `TxJson`.
 - **CI**: a re-run or queued run whose `plan` read a stale `npm view` (registry lag right after another run published) no longer fails the publish job: an exact-version `cannot publish over the previously published versions` 403 counts as already published, and `Tag and release` is skipped when the tag exists.
 
 ## 0.1.0-alpha.3 (2026-10-21)

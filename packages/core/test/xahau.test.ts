@@ -2,11 +2,11 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { autofill, NETWORK_PRESETS, type RpcClient } from "../src/client.js";
 import { decode, encode } from "../src/codec.js";
-import { XAHAU_DEFINITIONS } from "../src/xahau.js";
+import { type Import, type Invoke, XAHAU_DEFINITIONS } from "../src/xahau.js";
 
 const run = Effect.runPromise;
 const account = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
-const importTx = { TransactionType: "Import", Account: account, Blob: "00", Sequence: 0, Fee: "10", NetworkID: 21338, SigningPubKey: "" };
+const importTx: Import = { TransactionType: "Import", Account: account, Blob: "00", Sequence: 0, Fee: "10", NetworkID: 21338, SigningPubKey: "" };
 
 describe("Xahau definitions", () => {
   it("round-trips an Import; the XRPL tables refuse it", async () => {
@@ -23,6 +23,19 @@ describe("Xahau definitions", () => {
       Sequence: 1,
       SigningPubKey: "",
       Hooks: [{ Hook: { HookHash: "AB".repeat(32), HookNamespace: "CD".repeat(32), HookOn: "0".repeat(64), HookParameters: [{ HookParameter: { HookParameterName: "43", HookParameterValue: "01" } }] } }],
+    };
+    expect(await run(decode(await run(encode(tx, XAHAU_DEFINITIONS)), XAHAU_DEFINITIONS))).toEqual(tx);
+  });
+
+  it("round-trips an Invoke with transaction-level hook parameters and memos", async () => {
+    const tx: Invoke = {
+      TransactionType: "Invoke",
+      Account: account,
+      Fee: "10",
+      Sequence: 1,
+      SigningPubKey: "",
+      HookParameters: [{ HookParameter: { HookParameterName: "43", HookParameterValue: "01" } }],
+      Memos: [{ Memo: { MemoData: "AB" } }],
     };
     expect(await run(decode(await run(encode(tx, XAHAU_DEFINITIONS)), XAHAU_DEFINITIONS))).toEqual(tx);
   });
