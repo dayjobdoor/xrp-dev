@@ -117,9 +117,22 @@ export const verifyLogin = async (
   return address ? { address } : { code: "signature_invalid" };
 };
 
+/** A non-2xx answer of the app's auth API: `message` as sent, plus the HTTP `status` and the body's `code` (e.g. `name_taken`) and `reason`. */
+export class LoginError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly reason?: string,
+  ) {
+    super(message);
+    this.name = "LoginError";
+  }
+}
+
 /**
  * Browser half. Fetches a challenge, has the connected wallet sign it (a message when the wallet can, else the proof
- * transaction) and posts it. The session cookie comes back on the response. A non-2xx answer throws its `message`.
+ * transaction) and posts it. The session cookie comes back on the response. A non-2xx answer throws a `LoginError` with its `message`.
  */
 export const login = async (
   adapter: WalletAdapter,
@@ -128,8 +141,8 @@ export const login = async (
   const call = p.fetch ?? fetch;
   const base = p.base ?? "";
   const read = async <T>(res: Response): Promise<T> => {
-    const body = (await res.json().catch(() => ({}))) as { message?: string };
-    if (!res.ok) throw new Error(body.message ?? `HTTP ${res.status}`);
+    const body = (await res.json().catch(() => ({}))) as { message?: string; code?: string; reason?: string };
+    if (!res.ok) throw new LoginError(body.message ?? `HTTP ${res.status}`, res.status, body.code, body.reason);
     return body as T;
   };
   const { challenge, message } = await read<{ challenge: string; message: string }>(await call(`${base}/api/auth/challenge`, { credentials: "include" }));

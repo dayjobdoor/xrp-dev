@@ -105,6 +105,7 @@ describe("refusals and submit failures", () => {
     [{ TransactionType: "SetRegularKey" }],
     [{ TransactionType: "SignerListSet" }],
     [{ TransactionType: "DelegateSet" }],
+    [{ TransactionType: "SetHook" }],
     [{ TransactionType: "AccountSet", SetFlag: 4 }],
   ])("never signs %o", async (extra) => {
     const { adapter, seen } = fakes(PRF);

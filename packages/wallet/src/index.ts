@@ -208,7 +208,7 @@ export const signingRefusal = (tx: Record<string, unknown>): string | undefined 
   if (typeof type !== "string") return "TransactionType が文字列ではないため、署名しません。";
   if (type === "Batch") return "Batch は中の取引を個別に確認できないため、署名しません。";
   const disablesMaster = type === "AccountSet" && tx.SetFlag === 4; // asfDisableMaster
-  return type === "SetRegularKey" || type === "SignerListSet" || type === "DelegateSet" || disablesMaster
+  return type === "SetRegularKey" || type === "SignerListSet" || type === "DelegateSet" || type === "SetHook" || disablesMaster
     ? `${type}${disablesMaster ? "（asfDisableMaster）" : ""} は口座の管理権限を変えるため、署名しません。`
     : undefined;
 };

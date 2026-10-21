@@ -213,6 +213,9 @@ describe("signing refusals", () => {
     expect(signingRefusal({})).toMatch(/署名しません/);
     expect(signingRefusal({ TransactionType: "Payment" })).toBeUndefined();
   });
+  it("signingRefusal refuses SetHook", () => {
+    expect(signingRefusal({ TransactionType: "SetHook" })).toMatch(/署名しません/);
+  });
 });
 
 describe("account binding", () => {
