@@ -40,7 +40,7 @@ try {
     await $`bunx @arethetypeswrong/cli@0.18.5 ${tgz} --profile esm-only --ignore-rules cjs-resolves-to-esm`;
     // `bun pm pack` keeps a manifest as written; `npm publish` rewrites it (it once dropped `bin` for a "./" path), so ask npm.
     // Only the rewrite notice fails the check: a registry or network error here says nothing about the manifest.
-    const dry = await $`npm publish --dry-run --tag check 2>&1`.cwd(cwd).nothrow().text();
+    const dry = await $`npm publish --dry-run --tag check ${tgz} 2>&1`.cwd(cwd).nothrow().text();
     if (dry.includes("auto-corrected")) throw new Error(`npm would rewrite ${pkg.name}'s package.json (run \`npm pkg fix\`):\n${dry}`);
   }
 

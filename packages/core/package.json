@@ -26,7 +26,7 @@
   },
   "bin": { "xrp-dev-mcp": "dist/mcp/mcp.js" },
   "engines": { "node": ">=20.19" },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
   "publishConfig": { "access": "public" },
   "dependencies": {
     "@noble/curves": "^2.4.0",

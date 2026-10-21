@@ -36,6 +36,7 @@ jobs:
           name=$(node -p "require('./packages/core/package.json').name")
           version=$(node -p "require('./packages/core/package.json').version")
           grep -q "^## $version " CHANGELOG.md || { echo "CHANGELOG.md has no entry for $version"; exit 1; }
+          if grep "^## $version " CHANGELOG.md | grep -qi unreleased; then echo "CHANGELOG.md heading for $version still says unreleased: add the date"; exit 1; fi
           # A prerelease never goes to latest: 0.1.0-alpha.1 -> dist-tag alpha; any other prerelease id (0-, RC.1, 1.beta) -> next.
           case "$version" in
             *-*)
@@ -65,6 +66,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.x
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
@@ -76,6 +79,14 @@ jobs:
           CI: "true"
       - run: bun run test:bun
       - run: bun run check
+        env:
+          PACK_DIR: ${{ runner.temp }}/pack
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-tarball
+          path: ${{ runner.temp }}/pack/*.tgz
+          if-no-files-found: error
+          retention-days: 1
 
   publish:
     needs: [plan, verify]
@@ -86,28 +97,36 @@ jobs:
       contents: write # push the release tag
       id-token: write # npm trusted publishing (OIDC) and provenance
     steps:
+      # No checkout of code to run, no install, no build: the job holds the OIDC token and publishes the exact
+      # tarball `verify` checked (PACK_DIR in scripts/check-packages.ts). Checkout is only for pushing the tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-tarball
+          path: pack
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false # never cache in a release build
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-      - run: bun run check
       # Trusted publishing needs npm >= 11.5.1 (npm trust / stage publish: >= 11.15); Node 24 may bundle an older one.
-      - run: npm install -g npm@^11.15.0
+      - run: npm install -g npm@11.21.1
       - name: Publish
         env:
           TAG: ${{ needs.plan.outputs.tag }}
-        working-directory: packages/core
-        run: npm publish --tag "$TAG" # provenance is automatic with trusted publishing from a public repo
-      - name: Tag the release
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: npm publish "./pack/xrp-dev-$VERSION.tgz" --tag "$TAG" # provenance is automatic with trusted publishing from a public repo
+      - name: Tag and release
         env:
           VERSION: ${{ needs.plan.outputs.version }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "xrp-dev v$VERSION"
           git push origin "refs/tags/v$VERSION"
+          # Notes = this version's CHANGELOG section; a prerelease is flagged so it never shows as "Latest".
+          awk -v h="## $VERSION " 'index($0,h)==1{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          [ "$TAG" = latest ] && flag="" || flag="--prerelease"
+          gh release create "v$VERSION" "./pack/xrp-dev-$VERSION.tgz" --verify-tag --title "xrp-dev v$VERSION" --notes-file notes.md $flag

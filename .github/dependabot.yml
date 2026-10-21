@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+  - package-ecosystem: bun
+    directory: /
+    schedule: { interval: weekly }
+    # Pinned twice (devDependencies and the root `overrides` vite alias); Dependabot would bump only one. Bump by hand.
+    ignore:
+      - dependency-name: vite-plus
+      - dependency-name: "@voidzero-dev/*"
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
