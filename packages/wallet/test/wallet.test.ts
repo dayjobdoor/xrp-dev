@@ -216,17 +216,23 @@ describe("signing refusals", () => {
   it("signingRefusal refuses SetHook", () => {
     expect(signingRefusal({ TransactionType: "SetHook" })).toMatch(/署名しません/);
   });
-  it("signingRefusal refuses an Import whose XPOP carries keying, and one it cannot read; a Payment XPOP stays signable", async () => {
-    const xpop = async (inner: Record<string, unknown>) => {
-      const blob = await run(encode({ Account: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Fee: "10", Sequence: 1, SigningPubKey: "", ...inner }));
-      return bytesToHex(new TextEncoder().encode(JSON.stringify({ transaction: { blob } }))).toUpperCase();
-    };
-    for (const inner of [{ TransactionType: "SetRegularKey" }, { TransactionType: "SignerListSet", SignerQuorum: 0 }]) {
-      expect(signingRefusal({ TransactionType: "Import", Blob: await xpop(inner) })).toMatch(/署名しません/);
-    }
-    // The burn-to-mint inner transaction (AccountSet with OperationLimit) and a Payment are signable; this also proves the reader parses.
-    expect(signingRefusal({ TransactionType: "Import", Blob: await xpop({ TransactionType: "AccountSet", OperationLimit: 21337 }) })).toBeUndefined();
-    expect(signingRefusal({ TransactionType: "Import", Blob: await xpop({ TransactionType: "Payment", Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Amount: "1" }) })).toBeUndefined();
+  const xpopBlob = async (inner: Record<string, unknown>) => {
+    const blob = await run(encode({ Account: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Fee: "10", Sequence: 1, SigningPubKey: "", ...inner }));
+    return bytesToHex(new TextEncoder().encode(JSON.stringify({ transaction: { blob } }))).toUpperCase();
+  };
+  it.each([
+    ["SetRegularKey", { TransactionType: "SetRegularKey" }],
+    ["SignerListSet", { TransactionType: "SignerListSet", SignerQuorum: 0 }],
+  ])("signingRefusal refuses an Import whose XPOP carries %s", async (_, inner) => {
+    expect(signingRefusal({ TransactionType: "Import", Blob: await xpopBlob(inner) })).toMatch(/署名しません/);
+  });
+  it.each([
+    ["the burn-to-mint AccountSet", { TransactionType: "AccountSet", OperationLimit: 21337 }],
+    ["a Payment", { TransactionType: "Payment", Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Amount: "1" }],
+  ])("signingRefusal lets an Import whose XPOP carries %s through", async (_, inner) => {
+    expect(signingRefusal({ TransactionType: "Import", Blob: await xpopBlob(inner) })).toBeUndefined();
+  });
+  it("signingRefusal fails closed on an Import whose XPOP cannot be read", () => {
     expect(signingRefusal({ TransactionType: "Import", Blob: "DEADBEEF" })).toMatch(/署名しません/);
     expect(signingRefusal({ TransactionType: "Import" })).toMatch(/署名しません/);
   });
