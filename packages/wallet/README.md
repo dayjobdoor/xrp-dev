@@ -59,7 +59,7 @@ A wallet exposes `address`, `publicKey` and `algorithm`. Its `toJSON`, `toString
 
 `signingRefusal(tx)` returns a message (Japanese, as the app shows it) or `undefined`. It refuses:
 
-- `SetRegularKey`, `SignerListSet`, `DelegateSet`: they hand control of the account to another key. `SetHook` (Xahau): it installs code that can block or emit transactions for the account. `Import` (Xahau) is not refused.
+- `SetRegularKey`, `SignerListSet`, `DelegateSet`: they hand control of the account to another key. `SetHook` (Xahau): it installs code that can block or emit transactions for the account. `Import` (Xahau): refused when the XPOP's inner XRPL transaction is `SetRegularKey`, `SignerListSet` or `AccountSet` (Xahau carries the keying and flags over to the account) or when the XPOP cannot be read; any other inner transaction stays signable.
 - `AccountSet` with `SetFlag: 4` (`asfDisableMaster`).
 - `Batch`: the inner transactions cannot be reviewed individually.
 - Any transaction whose `TransactionType` is not a string (fail closed).

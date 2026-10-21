@@ -216,6 +216,18 @@ describe("signing refusals", () => {
   it("signingRefusal refuses SetHook", () => {
     expect(signingRefusal({ TransactionType: "SetHook" })).toMatch(/署名しません/);
   });
+  it("signingRefusal refuses an Import whose XPOP carries keying, and one it cannot read; a Payment XPOP stays signable", async () => {
+    const xpop = async (inner: Record<string, unknown>) => {
+      const blob = await run(encode({ Account: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Fee: "10", Sequence: 1, SigningPubKey: "", ...inner }));
+      return bytesToHex(new TextEncoder().encode(JSON.stringify({ transaction: { blob } }))).toUpperCase();
+    };
+    for (const inner of [{ TransactionType: "SetRegularKey" }, { TransactionType: "SignerListSet", SignerQuorum: 0 }, { TransactionType: "AccountSet" }]) {
+      expect(signingRefusal({ TransactionType: "Import", Blob: await xpop(inner) })).toContain(`中の取引が ${inner.TransactionType}`);
+    }
+    expect(signingRefusal({ TransactionType: "Import", Blob: await xpop({ TransactionType: "Payment", Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Amount: "1" }) })).toBeUndefined();
+    expect(signingRefusal({ TransactionType: "Import", Blob: "DEADBEEF" })).toMatch(/署名しません/);
+    expect(signingRefusal({ TransactionType: "Import" })).toMatch(/署名しません/);
+  });
 });
 
 describe("account binding", () => {

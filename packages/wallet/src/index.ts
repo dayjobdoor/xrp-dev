@@ -197,6 +197,28 @@ export class Wallet {
   }
 }
 
+// Xahau's Import syncs the account from the XPOP's inner XRPL transaction: SetRegularKey / SignerListSet carry keying over
+// (an empty SetRegularKey without a signer list disables the master key), AccountSet carries the mainnet flags.
+const IMPORT_KEEPS_AUTHORITY: Record<number, string> = { 3: "AccountSet", 5: "SetRegularKey", 12: "SignerListSet" }; // XRPL TransactionType codes
+
+/**
+ * Transaction type code of the XRPL transaction inside an XPOP (hex JSON with `transaction.blob`), `undefined` if
+ * unreadable. Sync on purpose: a canonical transaction starts with its `TransactionType` (field header 0x12, then the
+ * UInt16 code), so no full decode is needed and a large XPOP cannot trip the Effect runtime's yielding.
+ */
+const importInnerTypeCode = (blob: unknown): number | undefined => {
+  const isHex = (s: unknown): s is string => typeof s === "string" && s.length % 2 === 0 && /^[0-9a-fA-F]*$/.test(s);
+  try {
+    if (!isHex(blob)) return undefined;
+    const bytes = Uint8Array.from(blob.match(/../g) ?? [], (b) => parseInt(b, 16));
+    const inner = (JSON.parse(new TextDecoder().decode(bytes)) as { transaction?: { blob?: unknown } }).transaction?.blob;
+    if (!isHex(inner) || inner.length < 6 || !/^12/i.test(inner)) return undefined;
+    return parseInt(inner.slice(2, 6), 16);
+  } catch {
+    return undefined;
+  }
+};
+
 /**
  * Reason a transaction must not be signed: it hands control of the account to another key (or hides inner
  * transactions), so every signer in this package refuses it. `undefined` means signable. Matches names only, so a
@@ -207,6 +229,12 @@ export const signingRefusal = (tx: Record<string, unknown>): string | undefined 
   const type = tx.TransactionType;
   if (typeof type !== "string") return "TransactionType が文字列ではないため、署名しません。";
   if (type === "Batch") return "Batch は中の取引を個別に確認できないため、署名しません。";
+  if (type === "Import") {
+    const code = importInnerTypeCode(tx.Blob);
+    if (code === undefined) return "Import の XPOP を読めず、中の取引を確認できないため、署名しません。";
+    const inner = IMPORT_KEEPS_AUTHORITY[code];
+    if (inner) return `Import の中の取引が ${inner} で、口座の管理権限を取り込むため、署名しません。`;
+  }
   const disablesMaster = type === "AccountSet" && tx.SetFlag === 4; // asfDisableMaster
   return type === "SetRegularKey" || type === "SignerListSet" || type === "DelegateSet" || type === "SetHook" || disablesMaster
     ? `${type}${disablesMaster ? "（asfDisableMaster）" : ""} は口座の管理権限を変えるため、署名しません。`
