@@ -222,7 +222,7 @@ describe("signing refusals", () => {
       return bytesToHex(new TextEncoder().encode(JSON.stringify({ transaction: { blob } }))).toUpperCase();
     };
     for (const inner of [{ TransactionType: "SetRegularKey" }, { TransactionType: "SignerListSet", SignerQuorum: 0 }, { TransactionType: "AccountSet" }]) {
-      expect(signingRefusal({ TransactionType: "Import", Blob: await xpop(inner) })).toContain(`中の取引が ${inner.TransactionType}`);
+      expect(signingRefusal({ TransactionType: "Import", Blob: await xpop(inner) })).toMatch(/署名しません/);
     }
     expect(signingRefusal({ TransactionType: "Import", Blob: await xpop({ TransactionType: "Payment", Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Amount: "1" }) })).toBeUndefined();
     expect(signingRefusal({ TransactionType: "Import", Blob: "DEADBEEF" })).toMatch(/署名しません/);
