@@ -41,7 +41,7 @@
     "xrp-dev": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "^4.0.2"
+    "effect": "^4.0.6"
   },
   "scripts": {
     "build": "rm -rf dist && vp pack",
@@ -49,10 +49,10 @@
   },
   "devDependencies": {
     "vite-plus": "1.1.0",
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "@types/bun": "^1.4.2",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@types/bun": "^1.4.4",
     "@types/node": "26.6.5",
     "xrp-dev-wallet": "workspace:*",
-    "effect": "^4.0.2"
+    "effect": "^4.0.6"
   }
 }
