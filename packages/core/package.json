@@ -35,7 +35,7 @@
     "@noble/hashes": "^2.4.0"
   },
   "peerDependencies": {
-    "effect": "^4.0.2",
+    "effect": "^4.0.6",
     "xrpl": "^4.0.0 || ^5.0.0",
     "xrpl-connect": "^1.0.0",
     "hono": "^4.0.0"
@@ -47,9 +47,9 @@
   },
   "devDependencies": {
     "@types/node": "26.6.5",
-    "effect": "^4.0.2",
+    "effect": "^4.0.6",
     "fast-check": "^4.10.2",
-    "workerd": "1.20261018.1",
+    "workerd": "1.20261024.1",
     "ripple-address-codec": "^5.0.1",
     "ripple-binary-codec": "^2.11.0",
     "ripple-keypairs": "^3.1.0",

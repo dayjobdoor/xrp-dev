@@ -21,7 +21,7 @@
     "xrp-dev": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "^4.0.2",
+    "effect": "^4.0.6",
     "xrpl": "^4.0.0 || ^5.0.0",
     "xrpl-connect": "^1.0.0"
   },
@@ -32,7 +32,7 @@
   "devDependencies": {
     "@types/node": "26.6.5",
     "@xrplf/secret-numbers": "^3.0.0",
-    "effect": "^4.0.2",
+    "effect": "^4.0.6",
     "fast-check": "^4.10.2",
     "ripple-keypairs": "^3.1.0",
     "vite-plus": "1.1.0",
