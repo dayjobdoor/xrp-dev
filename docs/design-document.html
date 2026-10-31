@@ -442,10 +442,10 @@ export interface RpcClient { request&lt;T&gt;(method: string, params?: object): 
   <h3>Layers and runtimes</h3>
   <table>
     <tr><th>Layer</th><th>Content</th><th>Run</th><th>CI</th></tr>
-    <tr><td>P (portability)</td><td>No Node APIs are used, and the three runtimes give the same results</td><td>tsc, <code>bun build</code>, <code>bun test</code>, workerd (started directly, same version as Alchemy)</td><td>Every PR</td></tr>
-    <tr><td>W (library)</td><td>Fixed vectors, differential tests against xrpl.js, property tests</td><td>vite-plus (<code>vp test</code>). The same files also run under <code>bun test</code></td><td>Every PR</td></tr>
-    <tr><td>C, M (AI entry points)</td><td>Tool list, schema invariants, calls from a real MCP client</td><td>The library uses vite-plus. The agent uses <code>bun test</code> (the Service Binding is a fake), and Alchemy Test's dev mode, which stands up the real Worker on a local workerd and calls it (<code>test/worker.test.ts</code>. The Worker Loader is real too. Requires Cloudflare credentials, so local only)</td><td>Every PR (dev mode is local)</td></tr>
-    <tr><td>S (Skills)</td><td>Frontmatter, and running the code examples inside</td><td>vite-plus</td><td>Every PR</td></tr>
+    <tr><td>P (portability)</td><td>No Node APIs are used, and the three runtimes give the same results</td><td>tsc, <code>bun build</code>, <code>bun test</code>, workerd (started directly, same version as Alchemy)</td><td>Manual dispatch only</td></tr>
+    <tr><td>W (library)</td><td>Fixed vectors, differential tests against xrpl.js, property tests</td><td>vite-plus (<code>vp test</code>). The same files also run under <code>bun test</code></td><td>Manual dispatch only</td></tr>
+    <tr><td>C, M (AI entry points)</td><td>Tool list, schema invariants, calls from a real MCP client</td><td>The library uses vite-plus. The agent uses <code>bun test</code> (the Service Binding is a fake), and Alchemy Test's dev mode, which stands up the real Worker on a local workerd and calls it (<code>test/worker.test.ts</code>. The Worker Loader is real too. Requires Cloudflare credentials, so local only)</td><td>Manual dispatch only (dev mode is local)</td></tr>
+    <tr><td>S (Skills)</td><td>Frontmatter, and running the code examples inside</td><td>vite-plus</td><td>Manual dispatch only</td></tr>
     <tr><td>A (app)</td><td>Verify registration, signing, and network traffic with a virtual authenticator</td><td>Playwright (Chromium)</td><td>When the app changes</td></tr>
     <tr><td>E (e2e)</td><td>Prepare, sign, and submit on testnet. Nothing is sent to the production Worker</td><td><code>bun test</code></td><td>Manual only</td></tr>
   </table>
