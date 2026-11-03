@@ -13,7 +13,7 @@
     "hono": "^4.0.0"
   },
   "devDependencies": {
-    "hono": "4.13.13",
+    "hono": "4.13.14",
     "vite-plus": "1.1.0"
   },
   "scripts": {
