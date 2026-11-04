@@ -41,7 +41,7 @@
     "xrp-dev": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "^4.1.1"
+    "effect": "^4.0.2"
   },
   "scripts": {
     "build": "rm -rf dist && vp pack",
