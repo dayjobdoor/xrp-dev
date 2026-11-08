@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import { CryptoError } from "../errors.js";
 
 const HEX = "0123456789ABCDEF";
@@ -19,8 +18,11 @@ export const unsafeHexToBytes = (hex: string): Uint8Array => {
   return out;
 };
 
-export const hexToBytes = (hex: string): Effect.Effect<Uint8Array, CryptoError> =>
-  isHex(hex) ? Effect.succeed(unsafeHexToBytes(hex)) : Effect.fail(new CryptoError({ reason: "bad_hex", message: "not an even-length hex string" }));
+/** Throws `CryptoError` (`bad_hex`) unless `hex` is an even-length hex string. */
+export const hexToBytes = (hex: string): Uint8Array => {
+  if (!isHex(hex)) throw new CryptoError({ reason: "bad_hex", message: "not an even-length hex string" });
+  return unsafeHexToBytes(hex);
+};
 
 export const concatBytes = (...parts: readonly Uint8Array[]): Uint8Array => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));

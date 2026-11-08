@@ -1,5 +1,3 @@
-import { Effect } from "effect";
-import type { CodecError } from "../errors.js";
 import { fail } from "./values.js";
 
 // STNumber as ripple-binary-codec has it: an 8-byte signed mantissa and a 4-byte signed exponent, both big-endian.
@@ -20,52 +18,51 @@ const toBytes = (mantissa: bigint, exponent: number): Uint8Array => {
   return out;
 };
 
-/** A decimal string ("12", "-1.5", "3e-7") as an STNumber; anything rippled's parser rejects, or that cannot be scaled into range, fails. */
-export const numberBytes = (value: unknown, field: string): Effect.Effect<Uint8Array, CodecError> =>
-  Effect.gen(function* () {
-    const match = typeof value === "string" ? NUMBER.exec(value) : null;
-    if (!match) return yield* fail("bad_type", "expected a decimal string like -1.5e3", field);
-    const [, sign, int, frac = "", exp = "0"] = match;
-    const significant = (int! + frac).replace(/^0+/, "");
-    if (significant === "") return toBytes(0n, ZERO_EXPONENT);
-    let digits = significant.replace(/0+$/, "");
-    let exponent = Number(exp) - frac.length + (significant.length - digits.length);
-    // Only the first 20 digits can matter (19 kept, the 20th rounds), so a huge string cannot make the loops below slow.
-    if (digits.length > 20) {
-      exponent += digits.length - 20;
-      digits = digits.slice(0, 20);
-    }
-    let mantissa = BigInt(digits);
-    while (mantissa < MIN_MANTISSA && exponent > MIN_EXPONENT) {
-      exponent--;
-      mantissa *= 10n;
-    }
-    let dropped = -1n; // the last digit shifted out; 5 or more rounds up
-    const drop = () => {
-      exponent++;
-      dropped = mantissa % 10n;
-      mantissa /= 10n;
-    };
-    while (mantissa > MAX_MANTISSA) {
-      if (exponent >= MAX_EXPONENT) return yield* fail("out_of_range", "Number is too large", field);
-      drop();
-    }
-    if (exponent < MIN_EXPONENT || mantissa < MIN_MANTISSA) return yield* fail("out_of_range", "Number is too small", field);
-    if (exponent > MAX_EXPONENT) return yield* fail("out_of_range", "Number is too large", field);
+/** A decimal string ("12", "-1.5", "3e-7") as an STNumber; anything rippled's parser rejects, or that cannot be scaled into range, throws `CodecError`. */
+export const numberBytes = (value: unknown, field: string): Uint8Array => {
+  const match = typeof value === "string" ? NUMBER.exec(value) : null;
+  if (!match) return fail("bad_type", "expected a decimal string like -1.5e3", field);
+  const [, sign, int, frac = "", exp = "0"] = match;
+  const significant = (int! + frac).replace(/^0+/, "");
+  if (significant === "") return toBytes(0n, ZERO_EXPONENT);
+  let digits = significant.replace(/0+$/, "");
+  let exponent = Number(exp) - frac.length + (significant.length - digits.length);
+  // Only the first 20 digits can matter (19 kept, the 20th rounds), so a huge string cannot make the loops below slow.
+  if (digits.length > 20) {
+    exponent += digits.length - 20;
+    digits = digits.slice(0, 20);
+  }
+  let mantissa = BigInt(digits);
+  while (mantissa < MIN_MANTISSA && exponent > MIN_EXPONENT) {
+    exponent--;
+    mantissa *= 10n;
+  }
+  let dropped = -1n; // the last digit shifted out; 5 or more rounds up
+  const drop = () => {
+    exponent++;
+    dropped = mantissa % 10n;
+    mantissa /= 10n;
+  };
+  while (mantissa > MAX_MANTISSA) {
+    if (exponent >= MAX_EXPONENT) return fail("out_of_range", "Number is too large", field);
+    drop();
+  }
+  if (exponent < MIN_EXPONENT || mantissa < MIN_MANTISSA) return fail("out_of_range", "Number is too small", field);
+  if (exponent > MAX_EXPONENT) return fail("out_of_range", "Number is too large", field);
+  if (mantissa > MAX_INT64) {
+    if (exponent >= MAX_EXPONENT) return fail("out_of_range", "Number is too large", field);
+    drop();
+  }
+  if (dropped >= 5n) {
+    mantissa++;
     if (mantissa > MAX_INT64) {
-      if (exponent >= MAX_EXPONENT) return yield* fail("out_of_range", "Number is too large", field);
+      if (exponent >= MAX_EXPONENT) return fail("out_of_range", "Number is too large", field);
       drop();
+      if (dropped >= 5n) mantissa++;
     }
-    if (dropped >= 5n) {
-      mantissa++;
-      if (mantissa > MAX_INT64) {
-        if (exponent >= MAX_EXPONENT) return yield* fail("out_of_range", "Number is too large", field);
-        drop();
-        if (dropped >= 5n) mantissa++;
-      }
-    }
-    return toBytes(sign === "-" ? -mantissa : mantissa, exponent);
-  });
+  }
+  return toBytes(sign === "-" ? -mantissa : mantissa, exponent);
+};
 
 /**
  * `bytes` is the 12 bytes of one STNumber. Plain decimal for exponents -28..-8 and 0, `<digits>e<exp>` otherwise, as

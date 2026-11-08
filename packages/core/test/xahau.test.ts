@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
-import { autofill, NETWORK_PRESETS, type RpcClient } from "../src/client.js";
-import { decode, encode } from "../src/codec.js";
+import { autofill, NETWORK_PRESETS, type RpcClient } from "../src/effect/client.js";
+import { decode, encode } from "../src/effect/codec.js";
 import { type Import, type Invoke, XAHAU_DEFINITIONS } from "../src/xahau.js";
 
 const run = Effect.runPromise;

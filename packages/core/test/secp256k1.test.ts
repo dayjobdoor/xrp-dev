@@ -4,8 +4,8 @@ import fc from "fast-check";
 import { deriveKeypair, sign as rippleSign } from "ripple-keypairs";
 import { describe, expect, it } from "vite-plus/test";
 import { readFileSync } from "node:fs";
-import { bytesToHex, hexToBytes, sha256, sha512Half } from "../src/crypto.js";
-import { addScalars, getPublicKey, isValidPrivateKey, isValidPublicKey, n, sign, verify } from "../src/crypto/secp256k1.js";
+import { bytesToHex, hexToBytes, sha256, sha512Half } from "../src/effect/crypto.js";
+import { addScalars, getPublicKey, isValidPrivateKey, isValidPublicKey, n, sign, verify } from "../src/effect/secp256k1.js";
 
 const run = Effect.runPromise;
 const hex = (s: string) => Effect.runSync(hexToBytes(s));
@@ -239,5 +239,12 @@ describe("ripple-keypairs agreement", { timeout: SLOW }, () => {
       }),
       { numRuns: 200 },
     );
+  });
+});
+
+describe("group order", () => {
+  it("the constant in the source is noble's curve order", async () => {
+    const { secp256k1: curve } = await import("@noble/curves/secp256k1.js");
+    expect(n).toBe(curve.Point.Fn.ORDER);
   });
 });

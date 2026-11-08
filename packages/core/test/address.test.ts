@@ -11,9 +11,8 @@ import {
   encodeSeed,
   isValidClassicAddress,
   xAddressToClassic,
-} from "../src/address.js";
-import { base58CheckEncode } from "../src/crypto/base58.js";
-import { hexToBytes } from "../src/crypto/hex.js";
+} from "../src/effect/address.js";
+import { base58CheckEncode, hexToBytes } from "../src/effect/crypto.js";
 
 const run = Effect.runPromise;
 const GENESIS_PUB = "0330E7FC9D56BB25D6893BA3F317AE5BCF33B3291BD63DB32654A313222F7FD020";

@@ -7,7 +7,7 @@ import fc from "fast-check";
 import { decodeAccountID, encodeAccountID } from "ripple-address-codec";
 import * as oracle from "ripple-binary-codec";
 import { describe, expect, it } from "vite-plus/test";
-import { decode, encode, encodeForMultisigning, encodeForSigning, hashTransaction, type TxJson } from "../src/codec.js";
+import { decode, encode, encodeForMultisigning, encodeForSigning, hashTransaction, type TxJson } from "../src/effect/codec.js";
 import { definitions } from "../src/codec/definitions.js";
 import { bytesToHex } from "../src/crypto/hex.js";
 import { CodecError } from "../src/errors.js";

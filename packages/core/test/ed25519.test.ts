@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { deriveKeypair, sign as rkSign } from "ripple-keypairs";
 import { describe, expect, it } from "vite-plus/test";
 import { bytesToHex, unsafeHexToBytes } from "../src/crypto/hex.js";
-import { getPublicKey, isValidPublicKey, sign, verify } from "../src/crypto/ed25519.js";
+import { getPublicKey, isValidPublicKey, sign, verify } from "../src/effect/ed25519.js";
 import rfc from "./vectors/rfc8032-ed25519.json";
 import wycheproof from "./vectors/wycheproof/ed25519_test.json";
 

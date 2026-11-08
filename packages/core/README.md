@@ -1,8 +1,8 @@
 # xrp-dev
 
-XRPL SDK built on [Effect](https://effect.website): hashing, secp256k1 / ed25519, classic and X-addresses, the binary codec and a JSON-RPC / WebSocket client. The main entry holds no wallet and no key storage. Wallets are `xrp-dev/wallet`; the MCP server is `xrp-dev/mcp` (bin `xrp-dev-mcp`). It runs unchanged on Cloudflare Workers (workerd), Bun, browsers and Node.
+XRPL SDK for plain TypeScript: hashing, secp256k1 / ed25519, classic and X-addresses, the binary codec and a JSON-RPC / WebSocket client. The main entry holds no wallet and no key storage. Wallets are `xrp-dev/wallet`; the MCP server is `xrp-dev/mcp` (bin `xrp-dev-mcp`). It runs unchanged on Cloudflare Workers (workerd), Bun, browsers and Node. Functions return values or throw, network calls return Promises, and an [Effect](https://effect.website) API of the same functions is under `xrp-dev/effect`.
 
-> **Not independently audited as a whole:** secp256k1, ed25519 and RIPEMD-160 are [`@noble/curves`](https://github.com/paulmillr/noble-curves) and [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (audited: Trail of Bits 2023 and Aug 2026, Cure53 2024, Kudelski 2023, per the noble README). SHA-256 and SHA-512 are WebCrypto's. The binary codec, address and seed code, JSON-RPC client and the glue between them are this repository's and have had no third-party audit.
+> **Not independently audited as a whole:** SHA-256, SHA-512, secp256k1, ed25519 and RIPEMD-160 are [`@noble/curves`](https://github.com/paulmillr/noble-curves) and [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (audited: Trail of Bits 2023 and Aug 2026, Cure53 2024, Kudelski 2023, per the noble README). The binary codec, address and seed code, JSON-RPC client and the glue between them are this repository's and have had no third-party audit.
 
 ## Security
 
@@ -12,56 +12,65 @@ noble requires Node >= 20.19 and is ESM-only.
 
 ## Runtime
 
-- Browsers need a secure context (HTTPS or localhost) for WebCrypto (`crypto.subtle`).
+- Browsers need a secure context (HTTPS or localhost) for WebAuthn and for WebCrypto (`crypto.subtle`). Within this package only the server half of `xrp-dev/auth` (`createChallenge`, `verifyLogin`: HMAC) and the wallet's PRF derivation (`Wallet.fromPrf`, the passkey adapter: HKDF) use `crypto.subtle`; hashing, addresses, the codec and signing do not.
 - `AbortSignal.any` needs Node >= 20.3 (the package as a whole needs >= 20.19, noble's floor), Chrome 116, Safari 17.4 or Firefox 124.
 - CORS: `PUBLIC_RPC_URLS.mainnet` and `.testnet` answer the preflight, so a browser can call them. devnet has no CORS-enabled public JSON-RPC: use `createWsClient` (WebSocket is not subject to CORS) or a same-origin proxy.
 
 ## Install
 
 ```sh
-bun add xrp-dev effect   # or: npm i xrp-dev effect
+bun add xrp-dev   # or: npm i xrp-dev
 ```
 
-`effect` (`^4.0.2`) is a peer dependency: you handle its values and errors, so there must be exactly one copy.
+`effect` (`^4.0.2`) is a regular dependency, installed with `xrp-dev` and shared with your own copy when the versions allow. You only touch it through `xrp-dev/effect`, `xrp-dev/mcp` and `xrp-dev/name/server` (`validateName` returns an Effect).
 
 ## Entry points
 
 | Import | What |
 | --- | --- |
-| `xrp-dev` | crypto, address, codec and client. No keys |
+| `xrp-dev` | crypto, address, codec and client: plain functions that throw, and Promises for the client. No keys |
 | `xrp-dev/crypto` | sha256 / sha512Half / ripemd160, base58, secp256k1, ed25519 |
 | `xrp-dev/address` | classic addresses, X-addresses, seeds |
 | `xrp-dev/codec` | `encode`, `decode`, signing blobs, `hashTransaction`, `verifyTransaction`; each takes optional `defs` (codec tables) last |
-| `xrp-dev/client` | `createRpcClient`, `createWsClient`, `autofill`, `submit`, `NETWORK_PRESETS` |
+| `xrp-dev/client` | `Client` (xrpl.js style: `request`, `autofill`, `submit`, `submitAndWait`), or the functions `createRpcClient`, `createWsClient`, `autofill`, `submit`, `submitAndWait`; `NETWORK_PRESETS` |
+| `xrp-dev/effect` | the alpha.4 API: fallible and I/O functions return `Effect`s that fail with the same error classes, pure helpers (`bytesToHex`, `ripemd160`, `isValid*Key`, ...) return values. Subpaths: `/effect/crypto`, `/effect/address`, `/effect/codec`, `/effect/wallet`, `/effect/client` |
 | `xrp-dev/xahau` | `XAHAU_DEFINITIONS`: codec tables for Xahau, pass as `defs`. Types for the Xahau-only transactions (`Remit`, `URITokenMint`, `SetHook`, `Import`, ..., union `XahauTransaction`); each is assignable to `TxJson` |
 | `xrp-dev/auth` | wallet sign-in: `createChallenge`, `verifyLogin` (server), `login(adapter, { app })` (browser) |
 | `xrp-dev/name` | one unique name per account: rules, client checks (`createNameChecker`, `registerWithName`). Browser-safe, no `effect` |
 | `xrp-dev/name/server` | the server half: store helpers (`registerPasskeyAccount`, `loginWithName`), availability handler. Re-exports `xrp-dev/name` |
-| `xrp-dev/wallet` | keys and signing. Not loaded by the entries above |
+| `xrp-dev/wallet` | keys and signing: plain functions that throw `WalletError` (`Wallet.fromPrf` is a Promise). Not loaded by the entries above |
 | `xrp-dev/passkey` | xrpl-connect passkey adapter. Needs the optional `xrpl` and `xrpl-connect` peers, types only |
 | `xrp-dev/mcp` | tool registry and JSON-RPC handler. Bin: `xrp-dev-mcp` |
 | `xrp-dev/x402` | Hono gate for x402 v2 exact payments on XRPL (`requirePayment`). Needs the optional `hono` peer |
 
-The first five entries re-export their own error class (`CryptoError`, `AddressError`, `CodecError`, `ClientError`), so importing one is enough to catch and narrow its errors. `xrp-dev/wallet` fails with `WalletError`.
+The first five entries re-export their own error class (`CryptoError`, `AddressError`, `CodecError`, `ClientError`), so importing one is enough to catch and narrow its errors. `xrp-dev/wallet` throws `WalletError`.
 
-```ts
-import { Effect } from "effect";
+```ts run
 import { isValidClassicAddress } from "xrp-dev/address";
 import { encode, hashTransaction } from "xrp-dev/codec";
-import { createRpcClient, PUBLIC_RPC_URLS } from "xrp-dev/client";
+import { Client, ClientError } from "xrp-dev/client";
+import { Wallet } from "xrp-dev/wallet";
 
 const tx = { TransactionType: "Payment", Account: "rrrrrrrrrrrrrrrrrrrrrhoLvTp", Destination: "rrrrrrrrrrrrrrrrrrrrBZbvji", Amount: "1", Fee: "10", Sequence: 1, SigningPubKey: "" };
+const ok = isValidClassicAddress(tx.Account);
+const hash = hashTransaction(encode(tx));
 
-const program = Effect.gen(function* () {
-  const ok = yield* isValidClassicAddress(tx.Account);
-  const blob = yield* encode(tx);
-  const hash = yield* hashTransaction(blob);
-  return { ok, hash };
-});
-
-console.log(await Effect.runPromise(program));
-const client = createRpcClient({ url: PUBLIC_RPC_URLS.testnet });
+// Send a payment on the testnet: build, autofill, sign, submit and wait until it is validated.
+const client = new Client("testnet");
+const wallet = Wallet.fromEntropy(crypto.getRandomValues(new Uint8Array(16)));
+try {
+  const filled = await client.autofill({ TransactionType: "Payment", Account: wallet.address, Destination: tx.Destination, Amount: "1000000" });
+  const result = await client.submitAndWait(wallet.sign(filled).tx_blob);
+  console.log(result.transaction_result); // "tesSUCCESS", or a "tec…" code: applied, but it failed
+} catch (e) {
+  if (e instanceof ClientError) console.error(e.reason); // "http", "timeout", "rippled_error", "rejected", "expired", "aborted", ...
+}
+await client.disconnect();
 ```
+
+`client.request("account_info", { account })` and xrpl.js' `client.request({ command: "account_info", account })` both resolve to the node's `result`. A `wss://` URL gives a WebSocket client; `"mainnet"`, `"testnet"` and `"devnet"` name the public nodes. Every call takes `{ signal }` to abort it (it rejects with `ClientError` reason `aborted`) and `autofill`, `submit`, `submitAndWait` take `{ timeoutMs }` to bound it (reason `timeout`). A client you write yourself is handed that `signal` as `request(method, params, { signal })`; ignore it and the call still stops waiting, but your request keeps running. A `WebSocket` client's `close()` / `disconnect()` is not final: a later request opens a new socket.
+
+Everything in `crypto`, `address` and `codec` is synchronous: a result is returned, and a failure throws the entry's error class (`AddressError`, `CodecError`, `CryptoError`). Only the client is asynchronous: its methods return Promises that reject with `ClientError`. The errors are plain `Error` subclasses with `_tag` and `reason`. `crypto`, `address`, `codec`, `auth` and `wallet` import no `effect`, so a bundle of those subpaths carries none of it; the client, the root `xrp-dev` entry (which re-exports the client) and `xrp-dev/name/server` do. For Effects, import from `xrp-dev/effect/...` instead; the functions and errors are the same. `PasskeyAdapter` and `xrp-dev/mcp` accept either client (`toEffectClient` from `xrp-dev/effect/client` converts one explicitly). 
 
 ## Unique names (`xrp-dev/name`)
 

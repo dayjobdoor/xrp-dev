@@ -1,12 +1,15 @@
-import { Effect } from "effect";
 import type { WalletAdapter } from "xrpl-connect";
 import { publicKeyToAddress } from "./address.js";
-import { decode, signerMatchesAccount, verifyTransaction, type TxJson } from "./codec.js";
-import { ed25519, secp256k1, sha512Half } from "./crypto.js";
+import { decode, signerMatchesAccount, verifyTransaction } from "./codec.js";
+import * as ed25519 from "./crypto/ed25519.js";
+import { sha512Half } from "./crypto/hash.js";
 import { bytesToHex, hexToBytes } from "./crypto/hex.js";
+import * as secp256k1 from "./crypto/secp256k1.js";
+import { AddressError, CodecError, CryptoError } from "./errors.js";
 
-/** Sign-in for apps whose account is a wallet: the server issues a stateless challenge, the wallet signs it. */
+// Sign-in for apps whose account is a wallet: the server issues a stateless challenge, the wallet signs it.
 
+/** How long a challenge stays valid. */
 export const CHALLENGE_TTL_MS = 300_000;
 const ED25519_PREFIX = 0xed;
 const utf8 = (text: string) => new TextEncoder().encode(text);
@@ -41,23 +44,33 @@ export const isFreshChallenge = async (secret: string, challenge: string, opts: 
 /** Text the wallet signs. The client signs exactly this string and the server rebuilds it. */
 export const loginMessage = (app: string, challenge: string): string => `${app} login\n${challenge}`;
 
+// A malformed key, signature or blob is "not valid", not an exception; anything else thrown is a bug and propagates.
+const orUndefined = <T>(f: () => T): T | undefined => {
+  try {
+    return f();
+  } catch (e) {
+    if (e instanceof CryptoError || e instanceof AddressError || e instanceof CodecError) return undefined;
+    throw e;
+  }
+};
+
 /**
  * Verifies a `Wallet.signMessage` signature and returns the classic address derived from the public key,
  * or `undefined` when the signature is not valid for that key.
  */
-export const verifyMessage = (params: { message: string; signature: string; publicKey: string }): Effect.Effect<string | undefined> =>
-  Effect.gen(function* () {
-    const publicKey = yield* hexToBytes(params.publicKey);
-    const signature = yield* hexToBytes(params.signature);
+export const verifyMessage = (params: { message: string; signature: string; publicKey: string }): string | undefined =>
+  orUndefined(() => {
+    const publicKey = hexToBytes(params.publicKey);
+    const signature = hexToBytes(params.signature);
     const message = utf8(params.message);
     const isEd25519 = publicKey.length === 33 && publicKey[0] === ED25519_PREFIX;
     const valid = isEd25519
-      ? yield* ed25519.verify(signature, message, publicKey.subarray(1))
+      ? ed25519.verify(signature, message, publicKey.subarray(1))
       : publicKey.length === 33 && (publicKey[0] === 0x02 || publicKey[0] === 0x03)
-        ? yield* secp256k1.verify(signature, yield* sha512Half(message), publicKey)
+        ? secp256k1.verify(signature, sha512Half(message), publicKey)
         : false;
-    return valid ? yield* publicKeyToAddress(publicKey) : undefined;
-  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
+    return valid ? publicKeyToAddress(publicKey) : undefined;
+  });
 
 const hex = (text: string) => bytesToHex(utf8(text)).toUpperCase();
 
@@ -66,7 +79,16 @@ const hex = (text: string) => bytesToHex(utf8(text)).toUpperCase();
  * are both invalid), carrying the login message in a memo. Signing it proves the key without moving anything.
  * `SigningPubKey` is left to the wallet: Xaman reads an empty one as a multisign request.
  */
-export const loginProofTx = (p: { app: string; challenge: string; account: string }): TxJson => ({
+export type LoginProofTx = {
+  TransactionType: "AccountSet";
+  Account: string;
+  Sequence: 0;
+  Fee: "0";
+  LastLedgerSequence: number;
+  Memos: { Memo: { MemoType: string; MemoData: string } }[];
+};
+
+export const loginProofTx = (p: { app: string; challenge: string; account: string }): LoginProofTx => ({
   TransactionType: "AccountSet",
   Account: p.account,
   Sequence: 0,
@@ -79,9 +101,9 @@ export const loginProofTx = (p: { app: string; challenge: string; account: strin
 });
 
 /** The signer's address when `blob` is a valid, master-key-signed `loginProofTx` for this challenge; else `undefined`. */
-export const verifyProofTx = (blob: string, p: { app: string; challenge: string }): Effect.Effect<string | undefined> =>
-  Effect.gen(function* () {
-    const tx = yield* decode(blob);
+export const verifyProofTx = (blob: string, p: { app: string; challenge: string }): string | undefined =>
+  orUndefined(() => {
+    const tx = decode(blob);
     const memos = tx.Memos;
     const memo = Array.isArray(memos) && memos.length === 1 ? (memos[0] as { Memo?: { MemoData?: unknown } } | null)?.Memo : undefined;
     const ok =
@@ -91,10 +113,10 @@ export const verifyProofTx = (blob: string, p: { app: string; challenge: string 
       typeof tx.Account === "string" &&
       typeof memo?.MemoData === "string" &&
       memo.MemoData.toUpperCase() === hex(loginMessage(p.app, p.challenge)) &&
-      (yield* verifyTransaction(blob)) &&
-      (yield* signerMatchesAccount(blob));
+      verifyTransaction(blob) &&
+      signerMatchesAccount(blob);
     return ok ? (tx.Account as string) : undefined;
-  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
+  });
 
 export type LoginFailure = "invalid_request" | "challenge_invalid" | "signature_invalid";
 
@@ -109,11 +131,10 @@ export const verifyLogin = async (
   const credential = p.proof !== undefined || (p.signature !== undefined && p.publicKey !== undefined);
   if (!credential) return { code: "invalid_request" };
   if (!(await isFreshChallenge(secret, p.challenge, { app: p.app }))) return { code: "challenge_invalid" };
-  const address = await Effect.runPromise(
+  const address =
     p.proof !== undefined
       ? verifyProofTx(p.proof, p)
-      : verifyMessage({ message: loginMessage(p.app, p.challenge), signature: p.signature!, publicKey: p.publicKey! }),
-  );
+      : verifyMessage({ message: loginMessage(p.app, p.challenge), signature: p.signature!, publicKey: p.publicKey! });
   return address ? { address } : { code: "signature_invalid" };
 };
 
@@ -155,7 +176,7 @@ export const login = async (
   } else {
     const account = await adapter.getAccount();
     if (!account) throw new Error("the wallet is not connected");
-    const signed = await adapter.sign(loginProofTx({ app: p.app, challenge, account: account.address }) as never);
+    const signed = await adapter.sign(loginProofTx({ app: p.app, challenge, account: account.address }));
     if (!signed.tx_blob) throw new Error("the wallet did not return a signed transaction");
     credential = { proof: signed.tx_blob };
   }

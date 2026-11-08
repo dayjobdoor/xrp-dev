@@ -189,7 +189,7 @@ describe("availability", () => {
   it("the Hono handler reads ?name= and picks the store from the context", async () => {
     const { store } = makeStore();
     await claimName(store, "rA", "dave");
-    const handler = nameAvailabilityHandler((c: { req: { query(k: string): string | undefined } }) => store);
+    const handler = nameAvailabilityHandler((_c: { req: { query(k: string): string | undefined } }) => store);
     const ctx = (name?: string) => ({ req: { query: (k: string) => (k === "name" ? name : undefined) } });
     const ok = await handler(ctx("DAVE"));
     expect([ok.status, await ok.json()]).toEqual([200, { name: "dave", available: false }]);

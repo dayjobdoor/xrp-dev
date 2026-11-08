@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { ECDSA, Wallet as XrplWallet, multisign } from "xrpl";
-import { publicKeyToAddress } from "../src/address.js";
-import { decode, encode, signerMatchesAccount, verifyTransaction, type TxJson } from "../src/codec.js";
+import { publicKeyToAddress } from "../src/effect/address.js";
+import { decode, encode, signerMatchesAccount, verifyTransaction, type TxJson } from "../src/effect/codec.js";
 
 const run = Effect.runPromise;
 const tx = (account: string) => ({ TransactionType: "Payment", Account: account, Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Amount: "1", Fee: "12", Sequence: 7, Flags: 0 });

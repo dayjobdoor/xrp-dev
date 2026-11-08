@@ -5,7 +5,7 @@ import { runInWorkerd } from "./workerd.js";
 import { describe, expect, it } from "vite-plus/test";
 import { Wallet as XrplWallet } from "xrpl";
 import { Effect } from "effect";
-import { encode, type TxJson } from "../src/codec.js";
+import { encode, type TxJson } from "../src/effect/codec.js";
 
 const path = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 
@@ -17,7 +17,7 @@ const bundle = (entry: string): string => {
 };
 
 // P02: nothing Node-specific, and none of the test oracles, may end up in a bundle.
-const ENTRIES = ["crypto", "address", "codec", "client"]
+const ENTRIES = ["crypto", "address", "codec", "client", "effect/index"]
   .map((n) => `../src/${n}.ts`)
   .concat("../src/index.ts");
 const NODE_TRACES = [/node:/, /require\(/, /\bBuffer\b/, /process\./];
@@ -30,6 +30,22 @@ describe("P02 bundles carry no Node traces", () => {
     const out = bundle(path(rel)).replaceAll('globalThis.process?.getBuiltinModule?.("node:async_hooks")', "");
     expect(out.length).toBeGreaterThan(1000);
     for (const re of [...NODE_TRACES, ...ORACLES]) expect(out, String(re)).not.toMatch(re);
+  });
+});
+
+// P03: the plain entries are the small, Effect-free path. Bundled with `effect` left external, none of them may import it
+// (the Effect entries and the client are the only ones that do; `index` re-exports the client, so it is not listed).
+describe("P03 plain entries import no effect", () => {
+  it.each(["crypto", "address", "codec", "auth", "name"])("%s", (name) => {
+    const r = spawnSync("bun", ["build", "--target=browser", "--format=esm", "--external", "effect", path(`../src/${name}.ts`)], { encoding: "utf8", maxBuffer: 64 << 20 });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout.length).toBeGreaterThan(1000);
+    expect(r.stdout).not.toMatch(/from\s+["']effect/);
+  });
+
+  it("the Effect adapters do (the check can fail)", () => {
+    const r = spawnSync("bun", ["build", "--target=browser", "--format=esm", "--external", "effect", path("../src/effect/codec.ts")], { encoding: "utf8", maxBuffer: 64 << 20 });
+    expect(r.stdout).toMatch(/from\s+["']effect/);
   });
 });
 
@@ -51,6 +67,8 @@ const supported = async (fixtures: { binary: string; json: TxJson }[]) => {
   for (const f of fixtures) {
     if (ok.length < 10 && (await Effect.runPromise(encode(f.json).pipe(Effect.orElseSucceed(() => "")))) === f.binary) ok.push(f);
   }
+  // A silent shrink would leave the workerd run checking almost nothing.
+  if (ok.length < 5) throw new Error(`only ${ok.length} fixtures encode byte-for-byte`);
   return ok;
 };
 

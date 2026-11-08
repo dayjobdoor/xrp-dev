@@ -5,7 +5,10 @@ export default defineConfig({
   test: { include: ["test/**/*.test.ts"], testTimeout: 60_000 },
   // One ESM file per subpath; definitions.json is inlined into the codec chunk.
   pack: {
-    entry: ["src/index.ts", "src/crypto.ts", "src/address.ts", "src/codec.ts", "src/client.ts", "src/auth.ts", "src/name.ts", "src/name-server.ts", "src/xahau.ts"],
+    entry: [
+      "src/index.ts", "src/crypto.ts", "src/address.ts", "src/codec.ts", "src/client.ts", "src/auth.ts", "src/name.ts", "src/name-server.ts", "src/xahau.ts",
+      "src/effect/index.ts", "src/effect/crypto.ts", "src/effect/address.ts", "src/effect/codec.ts", "src/effect/client.ts",
+    ],
     format: "esm",
     platform: "neutral",
     dts: true,

@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import { sign as keypairSign } from "ripple-keypairs";
 import { describe, expect, it } from "vite-plus/test";
 import { Wallet as XrplWallet } from "xrpl";
@@ -13,7 +12,6 @@ import {
   verifyProofTx,
 } from "../src/auth.js";
 
-const run = Effect.runPromise;
 const SECRET = "test-secret";
 const APP = "TEST APP";
 const hex = (text: string) => Array.from(new TextEncoder().encode(text), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -46,21 +44,21 @@ describe("verifyMessage", () => {
       const wallet = XrplWallet.fromSeed(seed);
       const message = loginMessage(APP, "1.abc");
       const signature = keypairSign(hex(message), wallet.privateKey);
-      expect(await run(verifyMessage({ message, signature, publicKey: wallet.publicKey }))).toBe(wallet.address);
+      expect(verifyMessage({ message, signature, publicKey: wallet.publicKey })).toBe(wallet.address);
       const flipped = `${signature.slice(0, 10)}${signature[10] === "0" ? "1" : "0"}${signature.slice(11)}`;
-      expect(await run(verifyMessage({ message, signature: flipped, publicKey: wallet.publicKey }))).toBeUndefined();
-      expect(await run(verifyMessage({ message: `${message}x`, signature, publicKey: wallet.publicKey }))).toBeUndefined();
+      expect(verifyMessage({ message, signature: flipped, publicKey: wallet.publicKey })).toBeUndefined();
+      expect(verifyMessage({ message: `${message}x`, signature, publicKey: wallet.publicKey })).toBeUndefined();
     });
   }
 });
 
 describe("loginProofTx", () => {
   // xrpl-connect's XamanAdapter.sign() throws below 32570 and sends `multisign: true` for an empty SigningPubKey
-  it("meets Xaman's sign() contract: absolute LastLedgerSequence, no empty SigningPubKey", () => {
+  it("meets Xaman's sign() contract: absolute LastLedgerSequence, SigningPubKey left to the wallet", () => {
     const tx = loginProofTx({ app: APP, challenge: "1.abc", account: "rPEPPER7kfTD9w2To4CQk6UCfuHM9c6GDY" });
     expect(tx.LastLedgerSequence).toBeGreaterThanOrEqual(32570);
     expect(tx.LastLedgerSequence).toBeLessThanOrEqual(4294967295);
-    expect(tx.SigningPubKey).not.toBe("");
+    expect(tx).not.toHaveProperty("SigningPubKey");
   });
 });
 
@@ -70,25 +68,25 @@ describe("verifyProofTx", () => {
 
   it("returns the address of a master-key signature over the proof", async () => {
     const { tx_blob } = wallet.sign(proof("1.abc") as never);
-    expect(await run(verifyProofTx(tx_blob, { app: APP, challenge: "1.abc" }))).toBe(wallet.address);
+    expect(verifyProofTx(tx_blob, { app: APP, challenge: "1.abc" })).toBe(wallet.address);
   });
 
   it("refuses another challenge, another app, Sequence 1, and a nonzero Fee", async () => {
     const { tx_blob } = wallet.sign(proof("1.abc") as never);
-    expect(await run(verifyProofTx(tx_blob, { app: APP, challenge: "1.xyz" }))).toBeUndefined();
-    expect(await run(verifyProofTx(tx_blob, { app: "OTHER", challenge: "1.abc" }))).toBeUndefined();
-    expect(await run(verifyProofTx(wallet.sign(proof("1.abc", { Sequence: 1 }) as never).tx_blob, { app: APP, challenge: "1.abc" }))).toBeUndefined();
-    expect(await run(verifyProofTx(wallet.sign(proof("1.abc", { Fee: "10" }) as never).tx_blob, { app: APP, challenge: "1.abc" }))).toBeUndefined();
+    expect(verifyProofTx(tx_blob, { app: APP, challenge: "1.xyz" })).toBeUndefined();
+    expect(verifyProofTx(tx_blob, { app: "OTHER", challenge: "1.abc" })).toBeUndefined();
+    expect(verifyProofTx(wallet.sign(proof("1.abc", { Sequence: 1 }) as never).tx_blob, { app: APP, challenge: "1.abc" })).toBeUndefined();
+    expect(verifyProofTx(wallet.sign(proof("1.abc", { Fee: "10" }) as never).tx_blob, { app: APP, challenge: "1.abc" })).toBeUndefined();
   });
 
   it("refuses a blob signed by a regular key", async () => {
     const regular = XrplWallet.fromSeed("snoPBrXtMeMyMHUVTgbuqAfg1SUTb");
     const { tx_blob } = new XrplWallet(regular.publicKey, regular.privateKey, { masterAddress: wallet.address }).sign(proof("1.abc") as never);
-    expect(await run(verifyProofTx(tx_blob, { app: APP, challenge: "1.abc" }))).toBeUndefined();
+    expect(verifyProofTx(tx_blob, { app: APP, challenge: "1.abc" })).toBeUndefined();
   });
 
   it("refuses garbage", async () => {
-    expect(await run(verifyProofTx("zz", { app: APP, challenge: "1.abc" }))).toBeUndefined();
+    expect(verifyProofTx("zz", { app: APP, challenge: "1.abc" })).toBeUndefined();
   });
 });
 

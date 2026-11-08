@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import fc from "fast-check";
 import { describe, expect, it } from "vite-plus/test";
-import { base58CheckDecode, base58CheckEncode, base58Decode, base58Encode, bytesToHex, hexToBytes, ripemd160, sha256, sha512, sha512Half } from "../src/crypto.js";
+import { base58CheckDecode, base58CheckEncode, base58Decode, base58Encode, bytesToHex, hexToBytes, ripemd160, sha256, sha512, sha512Half } from "../src/effect/crypto.js";
 
 const run = Effect.runPromise;
 const utf8 = (s: string) => new TextEncoder().encode(s);

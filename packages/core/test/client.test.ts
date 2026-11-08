@@ -1,6 +1,8 @@
 import { Effect, Fiber } from "effect";
 import { describe, expect, it } from "vite-plus/test";
-import { autofill, createRpcClient, createWsClient, submit, type RpcClient } from "../src/client.js";
+import { ClientError } from "../src/errors.js";
+import { autofill, createRpcClient, createWsClient, submit, type RpcClient } from "../src/effect/client.js";
+import { createWsClient as createWsPromiseClient } from "../src/client.js";
 
 const run = <A, E>(e: Effect.Effect<A, E>) => Effect.runPromise(Effect.flip(e));
 const json = (b: unknown, init?: ResponseInit) => new Response(JSON.stringify(b), init);
@@ -313,5 +315,54 @@ describe("autofill / submit", () => {
     expect(calls).toEqual([{ method: "submit", params: { tx_blob: "AB12" } }]);
     for (const bad of ["", "xyz", "ABC"]) expect((await run(submit(client, bad))).reason).toBe("bad_input");
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("websocket client, Promise API", () => {
+  it("close() resolves and a pending request rejects with `closed`", async () => {
+    const c = createWsPromiseClient({ url: "ws://x", WebSocket: FakeWS as unknown as typeof WebSocket });
+    const pending = c.request("a").then(() => undefined, (e: unknown) => e as { reason: string });
+    await tick();
+    await c.close();
+    expect((await pending)?.reason).toBe("closed");
+    expect(FakeWS.last.closed).toBe(true);
+  });
+
+  it("request resolves to the result", async () => {
+    const c = createWsPromiseClient({ url: "ws://x", WebSocket: FakeWS as unknown as typeof WebSocket });
+    const p = c.request("ping");
+    await tick();
+    FakeWS.last.emit("message", { data: JSON.stringify({ id: FakeWS.last.sent[0].id, status: "success", result: { v: 1 } }) });
+    expect(await p).toEqual({ v: 1 });
+    await c.close();
+  });
+});
+
+describe("a Promise client where an Effect client is expected", () => {
+  const promiseClient = (handlers: Record<string, unknown>): { request: <T>(m: string) => Promise<T> } => ({
+    request: (async (method: string) => (method in handlers ? handlers[method] : Promise.reject(new Error(`${method}: no answer`)))) as never,
+  });
+
+  it("autofill and submit accept it", async () => {
+    const c = promiseClient({
+      fee: { drops: { open_ledger_fee: "12" }, ledger_current_index: 100 },
+      account_info: { account_data: { Sequence: 7 } },
+      submit: { engine_result: "tesSUCCESS", engine_result_message: "ok" },
+    });
+    expect(await Effect.runPromise(autofill(c, { Account: "rA", TransactionType: "Payment" }))).toMatchObject({ Fee: "12", Sequence: 7, LastLedgerSequence: 120 });
+    expect((await Effect.runPromise(submit(c, "1200"))).engine_result).toBe("tesSUCCESS");
+  });
+
+  it("a rejection that is not a ClientError, a synchronous throw, and a ClientError", async () => {
+    const reasonOf = async (c: { request: (...a: never[]) => unknown }) => (await run(submit(c as never, "1200"))).reason;
+    expect(await reasonOf(promiseClient({}))).toBe("http");
+    expect(await reasonOf({ request: () => { throw new Error("sync"); } })).toBe("http");
+    const timeout = new ClientError({ reason: "timeout", message: "slow" });
+    expect(await reasonOf({ request: () => Promise.reject(timeout) })).toBe("timeout");
+  });
+
+  it("an Effect client still runs as it is", async () => {
+    const c: RpcClient = { request: (() => Effect.succeed({ engine_result: "tesSUCCESS", engine_result_message: "ok" })) as RpcClient["request"] };
+    expect((await Effect.runPromise(submit(c, "1200"))).engine_result).toBe("tesSUCCESS");
   });
 });
