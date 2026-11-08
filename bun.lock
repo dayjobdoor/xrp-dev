@@ -14,7 +14,7 @@
     },
     "packages/core": {
       "name": "xrp-dev",
-      "version": "0.1.0-alpha.4",
+      "version": "0.1.0-alpha.5",
       "bin": {
         "xrp-dev-mcp": "dist/mcp/mcp.js",
       },
@@ -47,7 +47,7 @@
     },
     "packages/mcp": {
       "name": "xrp-dev-mcp",
-      "version": "0.1.0-alpha.4",
+      "version": "0.1.0-alpha.5",
       "dependencies": {
         "xrp-dev": "workspace:^",
       },
@@ -66,7 +66,7 @@
     },
     "packages/wallet": {
       "name": "xrp-dev-wallet",
-      "version": "0.1.0-alpha.4",
+      "version": "0.1.0-alpha.5",
       "dependencies": {
         "xrp-dev": "workspace:^",
       },
@@ -93,7 +93,7 @@
     },
     "packages/x402": {
       "name": "xrp-dev-x402",
-      "version": "0.1.0-alpha.4",
+      "version": "0.1.0-alpha.5",
       "devDependencies": {
         "hono": "4.13.13",
         "vite": "catalog:",
