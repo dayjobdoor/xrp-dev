@@ -78,7 +78,7 @@ describe("submitAndWait", () => {
   });
 
   it("is rejected at once when the node refuses it for good, without polling", async () => {
-    for (const code of ["temBAD_FEE", "tefPAST_SEQ", "telINSUF_FEE_P"]) {
+    for (const code of ["temBAD_FEE", "tefMAX_LEDGER", "telINSUF_FEE_P"]) {
       const { client, calls } = node({ submit: { engine_result: code, engine_result_message: "no" } });
       expect(await reasonOf(submitAndWait(client, signedBlob(), fast))).toBe("rejected");
       expect(calls).toEqual(["submit"]);
@@ -109,10 +109,143 @@ describe("submitAndWait", () => {
     expect((await submitAndWait(client, signedBlob(), fast)).transaction_result).toBe("tesSUCCESS");
   });
 
-  it("any other error from the node is not mistaken for 'not found yet'", async () => {
+  it("any other error from the node is not mistaken for 'not found yet': it is retried, and named when the deadline comes", async () => {
     const boom = new ClientError({ reason: "rippled_error", message: "tx: Internal error" });
-    const { client } = node({ submit: { engine_result: "tesSUCCESS", engine_result_message: "ok" }, ledger: { ledger_index: 1 }, tx: boom });
-    expect(await reasonOf(submitAndWait(client, signedBlob(), fast))).toBe("rippled_error");
+    const { client, calls } = node({ submit: { engine_result: "tesSUCCESS", engine_result_message: "ok" }, ledger: { ledger_index: 1 }, tx: boom });
+    const e = (await submitAndWait(client, signedBlob(), { intervalMs: 5, timeoutMs: 60 }).then(() => undefined, (x: unknown) => x)) as ClientError;
+    expect(e.reason).toBe("timeout");
+    expect(e.message).toContain("Internal error");
+    expect(e.cause).toBe(boom);
+    expect(calls.filter((c) => c === "tx").length).toBeGreaterThan(1);
+  });
+
+  describe("transient errors while polling", () => {
+    const sub = { submit: { engine_result: "tesSUCCESS", engine_result_message: "ok" } };
+    const done = { validated: true, meta: { TransactionResult: "tesSUCCESS" } };
+    const dropped = new ClientError({ reason: "closed", message: "websocket closed" });
+
+    it("do not reject the call after the submit: it keeps asking", async () => {
+      const blob = signedBlob();
+      const { client, calls } = node({
+        ...sub,
+        ledger: (n: number) => (n === 1 ? new ClientError({ reason: "http", message: "ledger: HTTP 503" }) : { ledger_index: 50 }),
+        tx: (n: number) => (n === 1 ? dropped : n === 2 ? new ClientError({ reason: "timeout", message: "tx: request timed out" }) : n === 3 ? notFound : done),
+      });
+      const r = await submitAndWait(client, blob, fast);
+      expect(r.transaction_result).toBe("tesSUCCESS");
+      expect(calls.filter((c) => c === "submit")).toHaveLength(1);
+    });
+
+    it("give up only at the call's own deadline, with the last error as the cause", async () => {
+      const { client } = node({ ...sub, ledger: dropped, tx: notFound });
+      const t0 = Date.now();
+      const e = (await submitAndWait(client, signedBlob(), { intervalMs: 5, timeoutMs: 80 }).then(() => undefined, (x: unknown) => x)) as ClientError;
+      expect(e.reason).toBe("timeout");
+      expect(e.cause).toBe(dropped);
+      expect(Date.now() - t0).toBeLessThan(500);
+    });
+
+    it("an error in the submit itself still rejects", async () => {
+      const { client, calls } = node({ submit: dropped });
+      expect(await reasonOf(submitAndWait(client, signedBlob(), fast))).toBe("closed");
+      expect(calls).toEqual(["submit"]);
+    });
+
+    it("an abort during the retries is an abort, not a timeout", async () => {
+      const { client } = node({ ...sub, ledger: dropped, tx: notFound });
+      const ac = new AbortController();
+      const p = submitAndWait(client, signedBlob(), { intervalMs: 5, timeoutMs: 10_000, signal: ac.signal });
+      setTimeout(() => ac.abort(), 30);
+      expect(await reasonOf(p)).toBe("aborted");
+    });
+  });
+
+  describe("timeoutMs is one deadline for the whole call", () => {
+    const sub = { engine_result: "tesSUCCESS", engine_result_message: "ok" };
+
+    it("cuts off a poll that never answers, even when the client ignores its signal", async () => {
+      const client: RpcClient = {
+        request: ((method: string) => (method === "submit" ? Promise.resolve(sub) : new Promise(() => {}))) as RpcClient["request"],
+      };
+      const t0 = Date.now();
+      expect(await reasonOf(submitAndWait(client, signedBlob(), { intervalMs: 5, timeoutMs: 80 }))).toBe("timeout");
+      expect(Date.now() - t0).toBeLessThan(400);
+    });
+
+    it("counts the sleeps: it does not sleep past the deadline", async () => {
+      const { client } = node({ submit: sub, ledger: { ledger_index: 1 }, tx: notFound });
+      const t0 = Date.now();
+      expect(await reasonOf(submitAndWait(client, signedBlob({ LastLedgerSequence: undefined }), { intervalMs: 500, timeoutMs: 100 }))).toBe("timeout");
+      expect(Date.now() - t0).toBeLessThan(300);
+    });
+
+    it("hands each poll an abort signal that fires at the deadline", async () => {
+      let fired = false;
+      const client: RpcClient = {
+        request: ((method: string, _p?: object, o?: { signal?: AbortSignal }) => {
+          if (method === "submit") return Promise.resolve(sub);
+          o?.signal?.addEventListener("abort", () => (fired = true));
+          return new Promise(() => {});
+        }) as RpcClient["request"],
+      };
+      expect(await reasonOf(submitAndWait(client, signedBlob(), { intervalMs: 5, timeoutMs: 40 }))).toBe("timeout");
+      expect(fired).toBe(true);
+    });
+  });
+
+  describe("a resubmission the node already knows", () => {
+    const validated = (result: string) => ({ validated: true, meta: { TransactionResult: result }, ledger_index: 70 });
+
+    it.each(["tefALREADY", "tefPAST_SEQ"])("%s: looks the transaction up and returns the ledger's result", async (code) => {
+      const blob = signedBlob();
+      const { client, calls } = node({
+        submit: { engine_result: code, engine_result_message: "known" },
+        ledger: { ledger_index: 70 },
+        tx: validated("tesSUCCESS"),
+      });
+      const r = await submitAndWait(client, blob, fast);
+      expect(r).toMatchObject({ hash: hashTransaction(blob), engine_result: code, transaction_result: "tesSUCCESS" });
+      expect(calls).toContain("tx");
+    });
+
+    it("the lookup is by hash", async () => {
+      const blob = signedBlob();
+      const seen: unknown[] = [];
+      const client: RpcClient = {
+        request: (async (method: string, params?: object) => {
+          if (method === "submit") return { engine_result: "tefALREADY", engine_result_message: "known" };
+          if (method === "tx") return seen.push(params), validated("tesSUCCESS");
+          return { ledger_index: 70 };
+        }) as RpcClient["request"],
+      };
+      await submitAndWait(client, blob, fast);
+      expect(seen).toEqual([{ transaction: hashTransaction(blob) }]);
+    });
+
+    it("a tec result in the ledger resolves like any validated outcome", async () => {
+      const { client } = node({ submit: { engine_result: "tefALREADY", engine_result_message: "known" }, ledger: { ledger_index: 70 }, tx: validated("tecUNFUNDED_PAYMENT") });
+      expect((await submitAndWait(client, signedBlob(), fast)).transaction_result).toBe("tecUNFUNDED_PAYMENT");
+    });
+
+    it("tefALREADY waits when the transaction is known but not validated yet", async () => {
+      const { client } = node({
+        submit: { engine_result: "tefALREADY", engine_result_message: "known" },
+        ledger: { ledger_index: 60 },
+        tx: (n: number) => (n < 3 ? { validated: false } : validated("tesSUCCESS")),
+      });
+      expect((await submitAndWait(client, signedBlob(), fast)).transaction_result).toBe("tesSUCCESS");
+    });
+
+    it("tefPAST_SEQ with no such transaction in any ledger is rejected: another one took the Sequence", async () => {
+      const { client, calls } = node({ submit: { engine_result: "tefPAST_SEQ", engine_result_message: "past" }, ledger: { ledger_index: 60 }, tx: notFound });
+      expect(await reasonOf(submitAndWait(client, signedBlob(), fast))).toBe("rejected");
+      expect(calls.filter((c) => c === "submit")).toHaveLength(1);
+    });
+
+    it("tefALREADY that the lookup cannot find yet expires like any other wait", async () => {
+      const { client } = node({ submit: { engine_result: "tefALREADY", engine_result_message: "known" }, ledger: (n: number) => ({ ledger_index: 98 + n }), tx: notFound });
+      expect(await reasonOf(submitAndWait(client, signedBlob(), fast))).toBe("expired");
+    });
   });
 
   it("times out without a LastLedgerSequence, and can be aborted while it waits", async () => {

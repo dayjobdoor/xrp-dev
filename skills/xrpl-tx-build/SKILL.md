@@ -61,7 +61,7 @@ Signing happens where the key lives. A real wallet comes from the Passkey app (`
 `submitAndWait` submits and then does the confirming for you:
 
 - It looks `tx` up by hash until `validated: true`, then reads `meta.TransactionResult` into `transaction_result` (`tesSUCCESS` = done; any `tec*` code was applied but failed and still consumed the fee, so it resolves: check the field).
-- It rejects with `ClientError`: `rejected` (`tem`, `tef`, `tel`: the node refuses it for good), `expired` (the validated ledger is past `LastLedgerSequence` and the transaction is not in it: re-autofill and re-sign with a fresh `LastLedgerSequence`), `timeout` or `aborted`.
+- It rejects with `ClientError`: `rejected` (`tem`, `tef`, `tel`: the node refuses it for good; except `tefALREADY` and `tefPAST_SEQ` on a resubmission, which look the transaction up by hash and resolve with the ledger's result), `expired` (the validated ledger is past `LastLedgerSequence` and the transaction is not in it: re-autofill and re-sign with a fresh `LastLedgerSequence`), `timeout` (`timeoutMs` bounds the whole call; errors while polling are retried until then) or `aborted`.
 - The ledger index is read **before** the lookup, so a transaction validated in between is not reported as expired.
 
 ```ts

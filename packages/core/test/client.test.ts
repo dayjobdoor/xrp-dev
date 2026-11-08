@@ -2,7 +2,7 @@ import { Effect, Fiber } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { ClientError } from "../src/errors.js";
 import { autofill, createRpcClient, createWsClient, submit, type RpcClient } from "../src/effect/client.js";
-import { createWsClient as createWsPromiseClient } from "../src/client.js";
+import { Client, createWsClient as createWsPromiseClient } from "../src/client.js";
 
 const run = <A, E>(e: Effect.Effect<A, E>) => Effect.runPromise(Effect.flip(e));
 const json = (b: unknown, init?: ResponseInit) => new Response(JSON.stringify(b), init);
@@ -231,15 +231,172 @@ describe("ws client", () => {
     expect(sock.sent).toEqual([]);
   });
 
-  it("opens a fresh socket after a request timed out on a silent one", async () => {
-    const c = gatedWs(20);
+  it("opens a fresh socket after three requests in a row timed out on a silent one", async () => {
+    const c = gatedWs(15);
     const first = run(c.request("a"));
     const dead = FakeWS.last;
     expect((await first).reason).toBe("timeout");
+    expect((await run(c.request("b"))).reason).toBe("timeout");
+    expect(dead.closed).toBe(false);
+    expect(FakeWS.last).toBe(dead);
+    expect((await run(c.request("c"))).reason).toBe("timeout");
     expect(dead.closed).toBe(true);
-    const second = run(c.request("b"));
+    const next = run(c.request("d"));
     expect(FakeWS.last).not.toBe(dead);
-    expect((await second).reason).toBe("timeout");
+    expect((await next).reason).toBe("timeout");
+  });
+
+  it("a timeout fails only its own request and keeps the socket", async () => {
+    const c = ws(60);
+    const slow = run(c.request("slow"));
+    await new Promise((r) => setTimeout(r, 30));
+    const fast = Effect.runPromise(c.request("fast"));
+    const sock = FakeWS.last;
+    expect((await slow).reason).toBe("timeout");
+    expect(sock.closed).toBe(false);
+    // "fast" has 30 ms of its own budget left; the node answers inside it.
+    sock.emit("message", { data: JSON.stringify({ id: sock.sent.find((m) => m.command === "fast").id, status: "success", result: { ok: 1 } }) });
+    expect(await fast).toEqual({ ok: 1 });
+    expect(sock.closed).toBe(false);
+  });
+
+  it("a late answer to a request that timed out is ignored, and shows the node is alive", async () => {
+    const c = ws(15);
+    const reply = (sock: FakeWS, id: number) => sock.emit("message", { data: JSON.stringify({ id, status: "success", result: {} }) });
+    const a = run(c.request("a"));
+    expect((await a).reason).toBe("timeout");
+    const sock = FakeWS.last;
+    // Two more timeouts would make three in a row; the late answer in between starts the count again.
+    const b = run(c.request("b"));
+    expect((await b).reason).toBe("timeout");
+    reply(sock, sock.sent[0].id);
+    const d = run(c.request("d"));
+    expect((await d).reason).toBe("timeout");
+    const e = run(c.request("e"));
+    expect((await e).reason).toBe("timeout");
+    expect(sock.closed).toBe(false);
+    expect((await run(c.request("f"))).reason).toBe("timeout");
+    expect(sock.closed).toBe(true);
+  });
+
+  it("any message at all, even one for nobody, counts as a sign of life", async () => {
+    const c = ws(15);
+    expect((await run(c.request("a"))).reason).toBe("timeout");
+    const sock = FakeWS.last;
+    expect((await run(c.request("b"))).reason).toBe("timeout");
+    sock.emit("message", { data: JSON.stringify({ type: "ledgerClosed" }) });
+    expect((await run(c.request("c"))).reason).toBe("timeout");
+    expect((await run(c.request("d"))).reason).toBe("timeout");
+    expect(sock.closed).toBe(false);
+    // Text that is not JSON proves nothing.
+    sock.emit("message", { data: "not json" });
+    expect((await run(c.request("e"))).reason).toBe("timeout");
+    expect(sock.closed).toBe(true);
+  });
+
+  it("recycling a dead socket fails the other requests waiting on it as closed", async () => {
+    const c = ws(30);
+    const sockPromises = [run(c.request("a")), run(c.request("b"))];
+    await new Promise((r) => setTimeout(r, 10));
+    const sock = FakeWS.last;
+    expect((await sockPromises[0]).reason).toBe("timeout");
+    expect((await sockPromises[1]).reason).toBe("timeout");
+    expect((await run(c.request("c"))).reason).toBe("timeout");
+    expect(sock.closed).toBe(true);
+    const waiting = run(c.request("w"));
+    const w = FakeWS.last;
+    expect(w).not.toBe(sock);
+    await Effect.runPromise(c.close());
+    expect((await waiting).reason).toBe("closed");
+  });
+
+  it("a message from a replaced socket is ignored", async () => {
+    const c = ws();
+    const first = run(c.request("a"));
+    await tick();
+    const old = FakeWS.last;
+    old.close = () => {
+      old.closed = true;
+    };
+    await Effect.runPromise(c.close());
+    expect((await first).reason).toBe("closed");
+    const p = Effect.runPromise(c.request("b"));
+    await tick();
+    const fresh = FakeWS.last;
+    old.emit("message", { data: JSON.stringify({ id: fresh.sent[0].id, status: "success", result: { from: "old" } }) });
+    fresh.emit("message", { data: JSON.stringify({ id: fresh.sent[0].id, status: "success", result: { from: "fresh" } }) });
+    expect(await p).toEqual({ from: "fresh" });
+  });
+
+  describe("message size cap", () => {
+    const capped = (maxBodyBytes: number) =>
+      createWsClient({ url: "ws://x", WebSocket: FakeWS as unknown as typeof WebSocket, maxBodyBytes, timeoutMs: 1000 });
+    const reply = (sock: FakeWS, id: number, v: string) => sock.emit("message", { data: JSON.stringify({ id, status: "success", result: { v } }) });
+
+    it("a message over the cap fails the socket with too_large and closes it", async () => {
+      const c = capped(100);
+      const a = run(c.request("a"));
+      const b = run(c.request("b"));
+      await tick();
+      const sock = FakeWS.last;
+      reply(sock, sock.sent[0].id, "x".repeat(200));
+      expect(await a).toMatchObject({ reason: "too_large" });
+      expect(await b).toMatchObject({ reason: "too_large" });
+      expect(sock.closed).toBe(true);
+      // The next request opens a new socket.
+      const next = Effect.runPromise(c.request("c"));
+      await tick();
+      expect(FakeWS.last).not.toBe(sock);
+      reply(FakeWS.last, FakeWS.last.sent[0].id, "ok");
+      expect(await next).toEqual({ v: "ok" });
+    });
+
+    it("a message at the cap is accepted; the cap counts bytes, not characters", async () => {
+      const body = (v: string) => JSON.stringify({ id: 1, status: "success", result: { v } });
+      const cap = body("x".repeat(50)).length;
+      const c = capped(cap);
+      const ok = Effect.runPromise(c.request("a"));
+      await tick();
+      FakeWS.last.emit("message", { data: body("x".repeat(50)) });
+      expect(await ok).toEqual({ v: "x".repeat(50) });
+
+      const c2 = capped(cap);
+      const wide = run(c2.request("a"));
+      await tick();
+      // 50 two-byte characters: as many UTF-16 units as before, twice the bytes.
+      FakeWS.last.emit("message", { data: body("é".repeat(50)) });
+      expect(await wide).toMatchObject({ reason: "too_large" });
+    });
+
+    it("binary messages are measured too", async () => {
+      const c = capped(10);
+      const p = run(c.request("a"));
+      await tick();
+      FakeWS.last.emit("message", { data: new ArrayBuffer(11) });
+      expect(await p).toMatchObject({ reason: "too_large" });
+    });
+
+    it("the Promise client and Client take the cap as well", async () => {
+      const c = createWsPromiseClient({ url: "ws://x", WebSocket: FakeWS as unknown as typeof WebSocket, maxBodyBytes: 100 });
+      const p = c.request("a").catch((e: unknown) => e);
+      await tick();
+      reply(FakeWS.last, FakeWS.last.sent[0].id, "x".repeat(200));
+      expect(await p).toMatchObject({ reason: "too_large" });
+
+      const client = new Client("wss://x", { WebSocket: FakeWS as unknown as typeof WebSocket, maxBodyBytes: 100 });
+      const q = client.request("a").catch((e: unknown) => e);
+      await tick();
+      reply(FakeWS.last, FakeWS.last.sent[0].id, "x".repeat(200));
+      expect(await q).toMatchObject({ reason: "too_large" });
+    });
+
+    it("by default a normal reply is far below the cap", async () => {
+      const c = ws();
+      const p = Effect.runPromise(c.request("a"));
+      await tick();
+      reply(FakeWS.last, FakeWS.last.sent[0].id, "x".repeat(100_000));
+      expect(((await p) as { v: string }).v).toHaveLength(100_000);
+    });
   });
 
   it("times out per request", async () => {
@@ -304,9 +461,34 @@ describe("autofill / submit", () => {
     expect((await Effect.runPromise(autofill(client, { ...base, Fee: "100000" }))).Fee).toBe("100000");
   });
 
-  it.each([NaN, Infinity, 2 ** 60, 0, -5, 1.5, "100"])("rejects ledger_current_index %s from the node", async (bad) => {
+  it.each([NaN, Infinity, 2 ** 60, 0, -5, 1.5, "100", 4_294_967_276, 2 ** 32, 2 ** 32 - 1])("rejects ledger_current_index %s from the node", async (bad) => {
     const { client } = stub({ ...h, fee: { drops: { open_ledger_fee: "12" }, ledger_current_index: bad }, ledger_current: { ledger_current_index: bad } });
     expect((await run(autofill(client, { Account: "rA" }))).reason).toBe("no_result");
+  });
+
+  it("accepts the highest ledger that keeps LastLedgerSequence a UInt32, from either call", async () => {
+    const top = 2 ** 32 - 1 - 20;
+    const viaFee = stub({ ...h, fee: { drops: { open_ledger_fee: "12" }, ledger_current_index: top } });
+    expect((await Effect.runPromise(autofill(viaFee.client, { Account: "rA" }))).LastLedgerSequence).toBe(2 ** 32 - 1);
+    const viaCurrent = stub({ ...h, fee: { drops: { open_ledger_fee: "12" } }, ledger_current: { ledger_current_index: top } });
+    expect((await Effect.runPromise(autofill(viaCurrent.client, { Account: "rA" }))).LastLedgerSequence).toBe(2 ** 32 - 1);
+  });
+
+  it("rejects a ledger_current answer that would overflow LastLedgerSequence", async () => {
+    const { client } = stub({ ...h, fee: { drops: { open_ledger_fee: "12" } }, ledger_current: { ledger_current_index: 2 ** 32 - 20 } });
+    const e = await run(autofill(client, { Account: "rA" }));
+    expect(e).toMatchObject({ reason: "no_result", message: expect.stringContaining("ledger_current_index") });
+  });
+
+  it("a caller-supplied LastLedgerSequence is left untouched, whatever the node says about the ledger", async () => {
+    for (const ledger of [100, 2 ** 32, "junk"]) {
+      const { client, calls } = stub({ ...h, fee: { drops: { open_ledger_fee: "12" }, ledger_current_index: ledger }, ledger_current: { ledger_current_index: ledger } });
+      const out = await Effect.runPromise(autofill(client, { Account: "rA", LastLedgerSequence: 2 ** 32 - 1 }));
+      expect(out).toMatchObject({ Fee: "12", Sequence: 7, LastLedgerSequence: 2 ** 32 - 1 });
+      expect(calls.map((c) => c.method)).not.toContain("ledger_current");
+    }
+    const { client } = stub(h);
+    expect((await Effect.runPromise(autofill(client, { Account: "rA", LastLedgerSequence: 5 }))).LastLedgerSequence).toBe(5);
   });
 
   it("submit sends tx_blob and rejects non-hex without calling", async () => {

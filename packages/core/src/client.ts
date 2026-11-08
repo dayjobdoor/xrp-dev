@@ -91,32 +91,89 @@ const transactionResult = (tx: Record<string, unknown>): string => {
 // rippled answers `txnNotFound` ("Transaction not found.") until the transaction is in a ledger; `ClientError` keeps the text.
 const notFoundYet = (e: unknown) => e instanceof ClientError && e.reason === "rippled_error" && /txnNotFound|not found/i.test(e.message);
 
+// A node that was busy, a connection that dropped, an answer cut short: asking again may work. A caller's abort and a request
+// that is wrong in itself will not get better. Anything that is not a ClientError is a bug in a custom client and surfaces.
+const retryable = (e: unknown): e is ClientError =>
+  e instanceof ClientError && e.reason !== "aborted" && e.reason !== "bad_input" && e.reason !== "rejected" && e.reason !== "expired";
+
+// The node already has this very transaction, or its Sequence is spent: whether that is ours is for the ledger to say.
+const resubmitted = (engineResult: string) => engineResult === "tefALREADY" || engineResult === "tefPAST_SEQ";
+
 /**
  * Submits a signed blob and waits until it is in a validated ledger, like xrpl.js' `submitAndWait`. Rejects with
  * `ClientError`: `rejected` when the node refuses it for good (`tem`, `tef`, `tel`), `expired` when the validated ledger
  * passes its `LastLedgerSequence` without it, `timeout` or `aborted`. A `tec` code is a validated outcome, so it resolves:
  * check `transaction_result`.
+ *
+ * `timeoutMs` is one deadline for the whole call: submit, every look at the ledger and every sleep between them. After the
+ * submit, an error from the node while looking (a dropped connection, a busy node) is retried until that deadline, so a
+ * hiccup does not make the caller resubmit; the `timeout` then carries the last error as its `cause`.
+ * A blob that was already submitted (the node answers `tefALREADY` or `tefPAST_SEQ`) is not refused out of hand: the
+ * transaction is looked up by hash. In a validated ledger it resolves with the ledger's result (`engine_result` stays the
+ * node's `tef` answer); `tefPAST_SEQ` with no such transaction means another one took the Sequence, which is `rejected`.
  */
 export const submitAndWait = async (client: RpcClient, txBlob: string, options: SubmitAndWaitOptions = {}): Promise<SubmitAndWaitResult> => {
   const { timeoutMs = 90_000, intervalMs = 1_000, signal } = options;
   const lastLedger = decode(txBlob).LastLedgerSequence;
   const hash = hashTransaction(txBlob);
   const deadline = Date.now() + timeoutMs;
-  const sent = await submit(client, txBlob, { ...withSignal(signal), timeoutMs });
-  if (/^te[mfl]/.test(sent.engine_result)) throw new ClientError({ reason: "rejected", message: `${sent.engine_result}: ${sent.engine_result_message}` });
-  for (;;) {
-    // The validated ledger index is read before the lookup, so a transaction validated in between is not reported as expired.
-    const ledger = await client.request<{ ledger_index: number }>("ledger", { ledger_index: "validated" }, withSignal(signal));
-    const found = await client.request<Record<string, unknown>>("tx", { transaction: hash }, withSignal(signal)).catch((e: unknown) => {
-      if (notFoundYet(e)) return undefined;
-      throw e;
+  let lastError: unknown;
+  const deadlines = new WeakSet<object>();
+  const timedOut = () => {
+    const e = new ClientError({
+      reason: "timeout",
+      message: `not validated within ${timeoutMs} ms${lastError instanceof Error ? ` (last error: ${lastError.message})` : ""}`,
+      ...(lastError === undefined ? {} : { cause: lastError }),
     });
-    if (found?.validated === true) {
-      return { hash, engine_result: sent.engine_result, transaction_result: transactionResult(found), tx: found };
+    deadlines.add(e);
+    return e;
+  };
+
+  // One request, cut off at the call's deadline even if the client ignores its signal.
+  const ask = <T>(method: string, params: object): Promise<T> => {
+    if (signal?.aborted) return Promise.reject(aborted());
+    const left = deadline - Date.now();
+    if (left <= 0) return Promise.reject(timedOut());
+    const stop = new AbortController();
+    const onAbort = () => stop.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const clock = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => (reject(timedOut()), stop.abort()), left);
+    });
+    // `new Promise` turns a synchronous throw of a custom client into a rejection, so the cleanup below still runs.
+    return Promise.race([new Promise<T>((resolve) => resolve(client.request<T>(method, params, { signal: stop.signal }))), clock])
+      .catch((e: unknown) => {
+        throw signal?.aborted ? aborted() : e;
+      })
+      .finally(() => (clearTimeout(timer), signal?.removeEventListener("abort", onAbort)));
+  };
+
+  const sent = await submit(client, txBlob, { ...withSignal(signal), timeoutMs });
+  if (/^te[mfl]/.test(sent.engine_result) && !resubmitted(sent.engine_result)) throw new ClientError({ reason: "rejected", message: `${sent.engine_result}: ${sent.engine_result_message}` });
+  for (;;) {
+    try {
+      // The validated ledger index is read before the lookup, so a transaction validated in between is not reported as expired.
+      const ledger = await ask<{ ledger_index?: unknown } | undefined>("ledger", { ledger_index: "validated" });
+      const found = await ask<Record<string, unknown>>("tx", { transaction: hash }).catch((e: unknown) => {
+        if (notFoundYet(e)) return undefined;
+        throw e;
+      });
+      if (found?.validated === true) {
+        return { hash, engine_result: sent.engine_result, transaction_result: transactionResult(found), tx: found };
+      }
+      if (found === undefined && sent.engine_result === "tefPAST_SEQ")
+        throw new ClientError({ reason: "rejected", message: `${sent.engine_result}: ${sent.engine_result_message}; the transaction is not in any ledger, so another one used the Sequence` });
+      const index = ledger?.ledger_index;
+      if (typeof lastLedger === "number" && typeof index === "number" && index > lastLedger)
+        throw new ClientError({ reason: "expired", message: `ledger ${index} is past LastLedgerSequence ${lastLedger} and the transaction is not in it` });
+      lastError = undefined;
+    } catch (e) {
+      if (!retryable(e) || deadlines.has(e)) throw e;
+      if (Date.now() >= deadline) throw timedOut();
+      lastError = e;
     }
-    if (typeof lastLedger === "number" && ledger.ledger_index > lastLedger)
-      throw new ClientError({ reason: "expired", message: `ledger ${ledger.ledger_index} is past LastLedgerSequence ${lastLedger} and the transaction is not in it` });
-    if (Date.now() + intervalMs > deadline) throw new ClientError({ reason: "timeout", message: `not validated within ${timeoutMs} ms` });
+    if (Date.now() + intervalMs > deadline) throw timedOut();
     await sleep(intervalMs, signal);
   }
 };

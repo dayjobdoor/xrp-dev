@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { ClientError } from "../errors.js";
+import { isRecord } from "../codec/values.js";
 import { encode, type TxJson } from "./codec.js";
 import type { Definitions } from "../codec/definitions.js";
 
@@ -13,6 +14,10 @@ const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_FEE_DROPS = 100_000n;
 // ~3-5 s per ledger, so a signed transaction stays valid for roughly a minute and then can never apply.
 const LAST_LEDGER_OFFSET = 20;
+// LastLedgerSequence is a UInt32 on the wire; a ledger number that pushes it past this cannot be encoded.
+const MAX_UINT32 = 0xffff_ffff;
+// A WebSocket that times out this many requests in a row without sending anything at all is taken for dead and replaced.
+const DEAD_AFTER_TIMEOUTS = 3;
 
 export const NETWORKS = ["mainnet", "testnet", "devnet"] as const;
 export type Network = (typeof NETWORKS)[number];
@@ -102,11 +107,9 @@ export interface SubmitResult {
 
 const err = (reason: ClientError["reason"], message: string) => new ClientError({ reason, message });
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-
 /** Maps a rippled result object (HTTP `result` or WS message) to success or a ClientError. */
 const unwrap = (method: string, result: unknown, outer?: Record<string, unknown>): Record<string, unknown> => {
-  if (!isObject(result)) {
+  if (!isRecord(result)) {
     if (outer && (outer.status === "error" || outer.error !== undefined)) return fail(method, outer);
     throw err("no_result", `${method}: response has no result`);
   }
@@ -199,7 +202,7 @@ export const createRpcClient = (opts: {
             } catch {
               throw err("bad_json", `${method}: response is not valid JSON`);
             }
-            return unwrap(method, isObject(body) ? body.result : undefined) as T;
+            return unwrap(method, isRecord(body) ? body.result : undefined) as T;
           },
           catch: (e) => asClientError(e, timeout),
         });
@@ -212,29 +215,44 @@ interface Pending {
   reject(e: ClientError): void;
 }
 
+/** True when a WebSocket message is over `max` bytes, without copying a string that cannot be. */
+const overCap = (data: unknown, max: number): boolean => {
+  // UTF-8 takes at least one byte per UTF-16 unit and at most three.
+  if (typeof data === "string") return data.length > max || (data.length * 3 > max && new TextEncoder().encode(data).byteLength > max);
+  if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return data.byteLength > max;
+  if (typeof Blob !== "undefined" && data instanceof Blob) return data.size > max;
+  return false;
+};
+
 export const createWsClient = (opts: {
   url: string;
   WebSocket?: typeof globalThis.WebSocket;
   timeoutMs?: number;
+  /** Largest single message accepted, in bytes (default 5 MiB). A bigger one fails the socket with `too_large`. */
+  maxBodyBytes?: number;
 }): RpcClient & { close(): Effect.Effect<void> } => {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxBodyBytes = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const pending = new Map<number, Pending>();
   let nextId = 1;
   let socket: Promise<WebSocket> | undefined;
   let current: WebSocket | undefined;
+  // Request timeouts in a row on `current` with no message of any kind heard in between.
+  let silentTimeouts = 0;
 
-  const failAll = (message: string) => {
+  const failAll = (reason: ClientError["reason"], message: string) => {
     socket = undefined;
     current = undefined;
+    silentTimeouts = 0;
     const all = [...pending.values()];
     pending.clear();
-    for (const p of all) p.reject(err("closed", message));
+    for (const p of all) p.reject(err(reason, message));
   };
 
-  // Also the timeout path: a silent half-open socket would otherwise be reused, and time out, forever.
-  const recycle = () => {
+  // Drops the socket and fails everything waiting on it; the next request opens a new one.
+  const recycle = (reason: ClientError["reason"] = "closed", message = "websocket closed") => {
     const ws = current;
-    failAll("websocket closed");
+    failAll(reason, message);
     ws?.close();
   };
 
@@ -243,15 +261,21 @@ export const createWsClient = (opts: {
       const WS = opts.WebSocket ?? globalThis.WebSocket;
       const ws = new WS(opts.url);
       current = ws;
+      silentTimeouts = 0;
       ws.addEventListener("open", () => resolve(ws));
       ws.addEventListener("message", (ev) => {
+        // A replaced socket may still deliver; its words say nothing about the current one.
+        if (current !== ws) return;
+        if (overCap(ev.data, maxBodyBytes)) return recycle("too_large", `websocket message exceeds ${maxBodyBytes} bytes`);
         let msg: unknown;
         try {
           msg = JSON.parse(String(ev.data));
         } catch {
           return;
         }
-        if (!isObject(msg) || typeof msg.id !== "number") return;
+        // Any parsed message shows the node is alive, even a late reply to a request that already timed out.
+        silentTimeouts = 0;
+        if (!isRecord(msg) || typeof msg.id !== "number") return;
         const p = pending.get(msg.id);
         if (!p) return;
         pending.delete(msg.id);
@@ -259,7 +283,7 @@ export const createWsClient = (opts: {
       });
       const down = () => {
         // A stale socket (replaced after close()) must not tear down its successor.
-        if (current === ws) failAll("websocket closed");
+        if (current === ws) failAll("closed", "websocket closed");
         reject(err("closed", "websocket closed"));
       };
       ws.addEventListener("error", down);
@@ -277,7 +301,8 @@ export const createWsClient = (opts: {
             const timer = setTimeout(() => {
               pending.delete(id);
               reject(err("timeout", `${method}: request timed out`));
-              recycle();
+              // Only this request fails, unless the socket looks dead: a slow answer to one call is not a broken connection.
+              if (++silentTimeouts >= DEAD_AFTER_TIMEOUTS) recycle();
             }, timeoutMs);
             pending.set(id, {
               resolve: (v) => (clearTimeout(timer), resolve(v as Record<string, unknown>)),
@@ -293,15 +318,16 @@ export const createWsClient = (opts: {
         },
         catch: (e) => asClientError(e),
       }),
-    close: () => Effect.sync(recycle),
+    close: () => Effect.sync(() => recycle()),
   };
 };
 
-const isLedgerIndex = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+// A ledger number the node may report: positive, exact, and low enough that LastLedgerSequence stays a UInt32.
+const isLedgerIndex = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0 && v + LAST_LEDGER_OFFSET <= MAX_UINT32;
 
 // A node, or a client written by hand, answers with whatever it likes: `request<T>` only claims a type. Narrow before reading.
 const asObject = (method: string) => (v: unknown): Effect.Effect<Record<string, unknown>, ClientError> =>
-  isObject(v) ? Effect.succeed(v) : Effect.fail(err("no_result", `${method}: the answer is not an object`));
+  isRecord(v) ? Effect.succeed(v) : Effect.fail(err("no_result", `${method}: the answer is not an object`));
 
 /**
  * Fills only missing Fee, Sequence, LastLedgerSequence and, on a network whose id is above 1024 (Xahau), NetworkID. A
@@ -331,7 +357,7 @@ export const autofill = (
           : undefined;
       const fee = yield* rpc.request("fee", feeParams).pipe(Effect.flatMap(asObject("fee")));
       if (needFee) {
-        const drops = isObject(fee.drops) ? fee.drops : {};
+        const drops = isRecord(fee.drops) ? fee.drops : {};
         const f = (opts.definitions ? drops.base_fee : undefined) ?? drops.open_ledger_fee;
         if (typeof f !== "string" || !/^\d+$/.test(f)) return yield* Effect.fail(err("no_result", "fee: missing drops.open_ledger_fee"));
         out.Fee = f;
@@ -356,7 +382,7 @@ export const autofill = (
         const info = yield* rpc
           .request("account_info", { account: out.Account, ledger_index: "current" })
           .pipe(Effect.flatMap(asObject("account_info")));
-        const seq = isObject(info.account_data) ? info.account_data.Sequence : undefined;
+        const seq = isRecord(info.account_data) ? info.account_data.Sequence : undefined;
         if (typeof seq !== "number") return yield* Effect.fail(err("no_result", "account_info: missing Sequence"));
         out.Sequence = seq;
       }

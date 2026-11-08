@@ -1,7 +1,7 @@
 // Plain `Error`s, so importing them pulls in no Effect. `_tag` is what `Effect.catchTag` matches, and the Effect entries
 // (`xrp-dev/effect`) fail with these very classes.
 
-export type CryptoReason = "bad_hex" | "bad_base58" | "bad_checksum" | "bad_length" | "bad_key" | "bad_signature";
+export type CryptoReason = "bad_hex" | "bad_base58" | "bad_checksum" | "bad_length" | "bad_key";
 export type AddressReason = "bad_checksum" | "bad_version" | "bad_length" | "bad_tag" | "bad_encoding" | "bad_key";
 export type CodecReason = "unknown_field" | "bad_type" | "out_of_range" | "bad_length";
 export type ClientReason = "timeout" | "http" | "too_large" | "bad_json" | "rippled_error" | "no_result" | "closed" | "bad_input" | "fee_too_high" | "aborted" | "rejected" | "expired";
