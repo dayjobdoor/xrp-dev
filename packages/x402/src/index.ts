@@ -33,6 +33,14 @@ export type InvoiceStore = {
   put(invoiceId: string, reqs: PaymentRequirements[], params: { ttlSeconds: number }): Promise<void> | void;
   get(invoiceId: string): Promise<PaymentRequirements[] | undefined> | PaymentRequirements[] | undefined;
   consume(invoiceId: string): Promise<void> | void;
+  /**
+   * Optional, atomic: take the invoice for one request. Returns `true` for the first caller and `false`
+   * for every other caller until `release`, `consume` or the TTL. A store shared by several processes
+   * MUST implement it (Redis: `SET key 1 NX EX ttl`), or two processes can both deliver one payment.
+   */
+  claim?(invoiceId: string, params: { ttlSeconds: number }): Promise<boolean> | boolean;
+  /** Optional: drop a claim when the request ends, so a failed attempt can be retried before the TTL. */
+  release?(invoiceId: string): Promise<void> | void;
 };
 
 export type PaymentOption = {
@@ -84,9 +92,9 @@ export type Facilitator = {
 export type RequirePaymentOptions = {
   price: string | number;
   payToAddress: string;
-  path?: string | string[];
   scheme?: string;
-  network?: string;
+  /** CAIP-2 id of the ledger the payment settles on, e.g. `xrpl:0` (mainnet) or `xrpl:1` (testnet). Required. */
+  network: string;
   asset?: string;
   issuer?: string;
   maxTimeoutSeconds?: number;
@@ -103,7 +111,6 @@ export type RequirePaymentOptions = {
   invoiceStore?: InvoiceStore;
   invoiceTtlSeconds?: number;
   invoiceIdFactory?: () => string;
-  settle?: boolean;
   x402SecurePolicyId?: string;
   merchantId?: string;
   origin?: string;
@@ -112,26 +119,90 @@ export type RequirePaymentOptions = {
 
 type GateEnv = { Variables: { x402?: X402SettlementContext } };
 
-export type PaymentGate<E extends GateEnv = GateEnv> = MiddlewareHandler<E> & {
-  /** Verify and match the invoice, then call next. Does not settle. */
-  verifyOnly: MiddlewareHandler<E>;
+/** A plain middleware: mount it with `app.use(path, gate)`. */
+export type PaymentGate<E extends GateEnv = GateEnv> = MiddlewareHandler<E>;
+
+type GateConfig = {
+  params: RequirePaymentOptions;
+  facilitator: Facilitator;
+  invoices: InvoiceStore;
+  ttl: number;
+  scheme: string;
+  network: string;
+  asset: string;
+  maxTimeoutSeconds: number;
 };
 
-const verifiedContexts = new WeakSet<object>();
+/** What `chargeOnDelivery` needs from a gate. Kept off the public type: a verify-only gate would deliver for free. */
+type GateInternals<E extends GateEnv> = {
+  invoices: InvoiceStore;
+  verifyOnly: MiddlewareHandler<E>;
+  verified(c: object): boolean;
+};
+
+const gateInternals = new WeakMap<object, unknown>();
+const uncacheable = new WeakSet<object>();
 const inflight = new Map<string, object>();
 
-/** One request at a time per invoice (per process). The owner context may re-enter; a duplicate gets 409. */
-async function withClaim<T>(invoiceId: string | undefined, c: Pick<Context, "json">, run: () => Promise<T>): Promise<T | Response> {
+/** Longer than the facilitator timeout (30 s) for verify plus settle; a crashed process frees the invoice after this. */
+const CLAIM_TTL_SECONDS = 120;
+
+/**
+ * One request at a time per invoice: in this process through `inflight`, and across processes through the store's
+ * `claim` when it has one. The owner context may re-enter; a duplicate gets 409.
+ */
+async function withClaim<T>(invoices: InvoiceStore, invoiceId: string | undefined, c: Pick<Context, "json">, run: () => Promise<T>): Promise<T | Response> {
   if (!invoiceId) return run();
   const owner = inflight.get(invoiceId);
   if (owner === c) return run();
   if (owner) return c.json({ error: "payment_in_progress" }, 409);
   inflight.set(invoiceId, c);
+  let claimed = false;
   try {
+    if (invoices.claim) {
+      if (!(await invoices.claim(invoiceId, { ttlSeconds: CLAIM_TTL_SECONDS }))) return c.json({ error: "payment_in_progress" }, 409);
+      claimed = true;
+    }
     return await run();
   } finally {
     inflight.delete(invoiceId);
+    if (claimed) {
+      try {
+        await invoices.release?.(invoiceId);
+      } catch {
+        /* the claim expires on its own */
+      }
+    }
   }
+}
+
+/** 402s, errors and paid responses depend on the payment header and must never come out of a shared cache. */
+function markUncacheable(c: { header(name: string, value: string, options?: { append?: boolean }): unknown }): void {
+  if (uncacheable.has(c)) return;
+  uncacheable.add(c);
+  c.header("Cache-Control", "no-store");
+  c.header("Vary", HEADER_PAYMENT_SIGNATURE, { append: true });
+}
+
+/** Stamp the response the handler produced: a `Response` returned by the handler does not carry `c.header` values. */
+function stampPaid<E extends GateEnv>(c: Context<E>, paymentResponse: string): void {
+  const apply = (headers: Headers) => {
+    headers.set("Cache-Control", "no-store");
+    headers.set(HEADER_PAYMENT_RESPONSE, paymentResponse);
+    if (!/(^|,)\s*(payment-signature|\*)\s*(,|$)/i.test(headers.get("Vary") ?? "")) headers.append("Vary", HEADER_PAYMENT_SIGNATURE);
+  };
+  try {
+    apply(c.res.headers);
+  } catch {
+    const res = new Response(c.res.body, c.res);
+    apply(res.headers);
+    c.res = res;
+  }
+}
+
+/** Only a browser's CORS preflight (both headers) skips the gate; any other OPTIONS is gated like a GET. */
+function isCorsPreflight(c: Context): boolean {
+  return c.req.method === "OPTIONS" && !!c.req.header("Origin") && !!c.req.header("Access-Control-Request-Method");
 }
 
 // ponytail: process-local cap; a shared deployment should pass its own `invoiceStore` with real eviction.
@@ -139,6 +210,7 @@ const MAX_MEMORY_INVOICES = 10_000;
 
 class MemoryInvoices implements InvoiceStore {
   private readonly map = new Map<string, { expiresAtMs: number; reqs: PaymentRequirements[] }>();
+  private readonly claims = new Map<string, number>();
 
   put(invoiceId: string, reqs: PaymentRequirements[], params: { ttlSeconds: number }): void {
     const now = Date.now();
@@ -162,6 +234,19 @@ class MemoryInvoices implements InvoiceStore {
 
   consume(invoiceId: string): void {
     this.map.delete(invoiceId);
+    this.claims.delete(invoiceId);
+  }
+
+  claim(invoiceId: string, params: { ttlSeconds: number }): boolean {
+    const now = Date.now();
+    const until = this.claims.get(invoiceId);
+    if (until !== undefined && until > now) return false;
+    this.claims.set(invoiceId, now + params.ttlSeconds * 1000);
+    return true;
+  }
+
+  release(invoiceId: string): void {
+    this.claims.delete(invoiceId);
   }
 }
 
@@ -255,33 +340,37 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
   if (!params.facilitator && !params.facilitatorUrl) {
     throw new Error("facilitator or facilitatorUrl is required");
   }
-  const facilitator = params.facilitator ?? createFacilitator(params.facilitatorUrl ?? "", params.facilitatorHeaders);
-  const invoices = params.invoiceStore ?? new MemoryInvoices();
-  const ttl = params.invoiceTtlSeconds ?? 900;
-  const scheme = params.scheme ?? "exact";
-  const network = params.network ?? "xrpl:1";
-  const asset = params.asset ?? "XRP";
-  const maxTimeoutSeconds = params.maxTimeoutSeconds ?? 600;
-  const paths = params.path == null ? undefined : new Set(typeof params.path === "string" ? [params.path] : params.path);
+  if ("path" in params) throw new Error("the `path` option was removed: mount the gate with app.use(path, gate)");
+  if ("settle" in params) throw new Error("the `settle` option was removed: the gate always settles; use chargeOnDelivery to settle after producing");
+  if (!params.network) throw new Error('network is required, e.g. "xrpl:0" (mainnet) or "xrpl:1" (testnet)');
+  if (!params.payToAddress || params.price == null || params.price === "") throw new Error("payToAddress and price are required");
+  const cfg: GateConfig = {
+    params,
+    facilitator: params.facilitator ?? createFacilitator(params.facilitatorUrl ?? "", params.facilitatorHeaders),
+    invoices: params.invoiceStore ?? new MemoryInvoices(),
+    ttl: params.invoiceTtlSeconds ?? 900,
+    scheme: params.scheme ?? "exact",
+    network: params.network,
+    asset: params.asset ?? "XRP",
+    maxTimeoutSeconds: params.maxTimeoutSeconds ?? 600,
+  };
+  const { facilitator, invoices } = cfg;
   const cache = new WeakMap<object, Verified>();
 
   const handle =
     (settle: boolean): MiddlewareHandler<E> =>
     async (c, next) => {
-      if (scheme === "upto") {
+      if (cfg.scheme === "upto") {
         return c.json({ error: "x402_scheme_unsupported", message: "upto scheme is not supported" }, 500);
       }
-      if (!params.payToAddress) {
-        return c.json({ error: "x402_not_configured", message: "X402_PAY_TO is required" }, 503);
-      }
-      if (c.req.method === "OPTIONS") return next();
-      if (paths && !paths.has(c.req.path)) return next();
+      if (isCorsPreflight(c)) return next();
+      markUncacheable(c);
 
       const signature = c.req.header(HEADER_PAYMENT_SIGNATURE);
-      if (!signature) return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds);
+      if (!signature) return challenge(c, cfg);
 
       const cached = cache.get(c);
-      if (cached && settle) return finishSettle(c, next, facilitator, invoices, params, cached);
+      if (cached && settle) return finishSettle(c, next, cfg, cached);
 
       let payload: ReturnType<typeof decodeSignature>;
       try {
@@ -291,15 +380,20 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
       }
       const invoiceId = typeof payload.payload.invoiceId === "string" ? payload.payload.invoiceId : undefined;
       if (!invoiceId) return c.json({ error: "missing_invoiceId" }, 400);
-      return withClaim(invoiceId, c, async () => {
-        const stored = await invoices.get(invoiceId);
-        if (!stored?.length) return c.json({ error: "unknown_invoice_id" }, 400);
+      return withClaim(invoices, invoiceId, c, async () => {
+        const issued = await invoices.get(invoiceId);
+        if (!issued?.length) return c.json({ error: "unknown_invoice_id" }, 400);
+        const { rows: stored, fingerprint: issuedFor } = unstamp(issued);
+        // An invoice opens only the gate, and the resource, it was issued for, at the price this request asks today.
+        if (!issuedFor || issuedFor !== (await fingerprintOf(requirementsFor(cfg), resourceOf(c, params)))) {
+          return challenge(c, cfg, undefined, "invoice_not_for_this_resource");
+        }
         const selected = stored.find((row) => requirementsMatch(row, payload.accepted));
         if (!selected) return c.json({ error: "payment_requirements_mismatch" }, 402);
 
         const paidSecure = isRecord(payload.extensions) ? payload.extensions[X402_SECURE] : undefined;
         if (params.x402SecurePolicyId && !isRecord(paidSecure)) {
-          return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds, stored, "x402_secure_extension_required");
+          return challenge(c, cfg, stored, "x402_secure_extension_required");
         }
 
         let verify: VerifyResult;
@@ -315,22 +409,21 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
           return c.json({ error: `verify_http_error:${messageOf(err)}` }, 502);
         }
         if (!verify.isValid) {
-          return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds, stored, `verify_failed:${verify.invalidReason ?? ""}`);
+          return challenge(c, cfg, stored, `verify_failed:${verify.invalidReason ?? ""}`);
         }
         // With a secure policy the facilitator's decision token is the proof the policy ran: no token, no settle.
         if (params.x402SecurePolicyId && !decisionToken(verify)) {
-          return challenge(c, params, facilitator, invoices, ttl, scheme, network, asset, maxTimeoutSeconds, stored, "x402_secure_decision_token_missing");
+          return challenge(c, cfg, stored, "x402_secure_decision_token_missing");
         }
         const verified = { invoiceId, selected, verify, paymentSignature: signature };
         cache.set(c, verified);
-        verifiedContexts.add(c);
         if (!settle) return next();
-        return finishSettle(c, next, facilitator, invoices, params, verified);
+        return finishSettle(c, next, cfg, verified);
       });
     };
 
-  const gate = handle(params.settle ?? true) as PaymentGate<E>;
-  gate.verifyOnly = handle(false);
+  const gate = handle(true);
+  gateInternals.set(gate, { invoices, verifyOnly: handle(false), verified: (c) => cache.has(c) } satisfies GateInternals<E>);
   return gate;
 }
 
@@ -343,10 +436,13 @@ export async function chargeOnDelivery<E extends GateEnv>(
   gate: PaymentGate<E>,
   produce: () => Promise<JsonRecord | Response>,
 ): Promise<Response> {
+  const internals = gateInternals.get(gate) as GateInternals<E> | undefined;
+  if (!internals) throw new Error("chargeOnDelivery needs a gate made by requirePayment");
   const signature = c.req.header(HEADER_PAYMENT_SIGNATURE);
   if (!signature) {
     return (await gate(c, async () => {})) ?? c.json({}, 402);
   }
+  markUncacheable(c);
   // Hold the invoice across verify, produce and settle so a duplicate request cannot run produce() a second time.
   let claimId: string | undefined;
   try {
@@ -354,13 +450,13 @@ export async function chargeOnDelivery<E extends GateEnv>(
   } catch {
     /* the gate answers a malformed header with 400 */
   }
-  return withClaim(typeof claimId === "string" ? claimId : undefined, c, async () => {
+  return withClaim(internals.invoices, typeof claimId === "string" ? claimId : undefined, c, async () => {
     let passed = false;
-    const refused = await gate.verifyOnly(c, async () => {
+    const refused = await internals.verifyOnly(c, async () => {
       passed = true;
     });
-    // `passed` alone is not proof: the gate also calls next for OPTIONS and for paths outside `path`, unverified.
-    if (!passed || !verifiedContexts.has(c)) return refused ?? c.json({}, 402);
+    // `passed` alone is not proof: the gate also calls next for a CORS preflight, unverified.
+    if (!passed || !internals.verified(c)) return refused ?? c.json({}, 402);
     const delivered = await produce();
     if (delivered instanceof Response) return delivered;
     let settled = false;
@@ -371,18 +467,19 @@ export async function chargeOnDelivery<E extends GateEnv>(
   });
 }
 
-async function finishSettle<E extends GateEnv>(
-  c: Context<E>,
-  next: () => Promise<void>,
-  facilitator: Facilitator,
-  invoices: InvoiceStore,
-  params: RequirePaymentOptions,
-  verified: Verified,
-): Promise<Response | void> {
+/** The facilitator is the trust boundary for the ledger; the gate checks that it answered for this payment. */
+function settlementProblem(settlement: Settlement, network: string): string | undefined {
+  if (!settlement.success) return settlement.errorReason ?? "";
+  if (typeof settlement.transaction !== "string" || !settlement.transaction.trim()) return "settlement_transaction_missing";
+  if (settlement.network != null && settlement.network !== network) return "settlement_network_mismatch";
+  return undefined;
+}
+
+async function finishSettle<E extends GateEnv>(c: Context<E>, next: () => Promise<void>, cfg: GateConfig, verified: Verified): Promise<Response | void> {
   const token = decisionToken(verified.verify);
   let settlement: Settlement;
   try {
-    settlement = await facilitator.settle({
+    settlement = await cfg.facilitator.settle({
       paymentHeader: verified.paymentSignature,
       paymentRequirements: verified.selected,
       ...(token ? { extensions: { [X402_SECURE]: { decisionToken: token } } } : {}),
@@ -396,30 +493,19 @@ async function finishSettle<E extends GateEnv>(
       502,
     );
   }
-  if (!settlement.success) {
-    if (legacyUnknown(settlement.errorReason)) return settlementUnknown(c);
-    return challenge(
-      c,
-      params,
-      facilitator,
-      invoices,
-      params.invoiceTtlSeconds ?? 900,
-      params.scheme ?? "exact",
-      params.network ?? "xrpl:1",
-      params.asset ?? "XRP",
-      params.maxTimeoutSeconds ?? 600,
-      [verified.selected],
-      `settle_failed:${settlement.errorReason ?? ""}`,
-    );
+  const problem = settlementProblem(settlement, cfg.network);
+  if (problem !== undefined) {
+    if (!settlement.success && legacyUnknown(settlement.errorReason)) return settlementUnknown(c);
+    return challenge(c, cfg, [verified.selected], `settle_failed:${problem}`);
   }
-  await invoices.consume(verified.invoiceId);
+  await cfg.invoices.consume(verified.invoiceId);
   const header =
     settlement.paymentResponseHeader ??
     base64Utf8(
       canonical({
         success: true,
         transaction: settlement.transaction ?? "",
-        network: settlement.network ?? verified.selected.network,
+        network: settlement.network ?? cfg.network,
         payer: settlement.payer ?? "",
         ...(settlement.extensions ? { extensions: settlement.extensions } : {}),
       }),
@@ -432,38 +518,69 @@ async function finishSettle<E extends GateEnv>(
     ...(verified.verify.payer ?? settlement.payer ? { payer: verified.verify.payer ?? settlement.payer } : {}),
   });
   await next();
+  if (c.finalized) stampPaid(c, header);
 }
 
-async function challenge<E extends GateEnv>(
-  c: Context<E>,
-  params: RequirePaymentOptions,
-  facilitator: Facilitator,
-  invoices: InvoiceStore,
-  ttl: number,
-  scheme: string,
-  network: string,
-  asset: string,
-  maxTimeoutSeconds: number,
-  existing?: PaymentRequirements[],
-  error = `${HEADER_PAYMENT_SIGNATURE} header is required`,
-): Promise<Response> {
+function resourceOf(c: Context, params: RequirePaymentOptions): string {
+  return params.resource ?? new URL(c.req.url).href;
+}
+
+/** The requirements THIS gate asks of THIS request now; the invoice id is added when an invoice is issued. */
+function requirementsFor(cfg: GateConfig, invoiceId?: string): PaymentRequirements[] {
+  const { params, scheme, network, asset, maxTimeoutSeconds } = cfg;
+  const options = params.paymentOptions?.length
+    ? params.paymentOptions
+    : [{ asset, amount: String(params.price), ...(params.issuer ? { issuer: params.issuer } : {}), ...(params.extra ? { extra: params.extra } : {}) }];
+  return options.map((opt) => {
+    const extra: JsonRecord = { ...(params.extra ?? {}), ...(opt.extra ?? {}) };
+    const issuer = opt.issuer ?? params.issuer;
+    if (issuer) extra.issuer = issuer;
+    if (extra.sourceTag == null && params.sourceTag != null) extra.sourceTag = params.sourceTag;
+    if (extra.facilitator == null && params.facilitatorIdentity) extra.facilitator = { ...params.facilitatorIdentity };
+    if (invoiceId) extra.invoiceId = invoiceId;
+    return { scheme, network, amount: String(opt.amount), asset: String(opt.asset), payTo: params.payToAddress, maxTimeoutSeconds, extra };
+  });
+}
+
+// The fingerprint rides inside the stored rows' `extra` (the clients never see it: `unstamp` strips it on read),
+// so any store that persists `extra` binds the invoice to its gate without a contract change.
+const FINGERPRINT_KEY = "x402GateFingerprint";
+
+/** SHA-256 over what the payment is for: network, asset (+ issuer), amount, payee and resource. */
+async function fingerprintOf(rows: PaymentRequirements[], resource: string): Promise<string> {
+  const accepts = rows.map((r) => ({
+    network: r.network,
+    asset: r.asset,
+    amount: r.amount,
+    payTo: r.payTo,
+    issuer: isRecord(r.extra) ? (r.extra.issuer ?? null) : null,
+  }));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical({ resource, accepts })));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function stamp(rows: PaymentRequirements[], fingerprint: string): PaymentRequirements[] {
+  return rows.map((row) => ({ ...row, extra: { ...row.extra, [FINGERPRINT_KEY]: fingerprint } }));
+}
+
+/** The rows as issued to the client, and the fingerprint they were stored with (absent unless every row agrees). */
+function unstamp(stored: PaymentRequirements[]): { rows: PaymentRequirements[]; fingerprint?: string } {
+  const fingerprints = new Set<unknown>();
+  const rows = stored.map((row) => {
+    const { [FINGERPRINT_KEY]: fingerprint, ...extra } = row.extra ?? {};
+    fingerprints.add(fingerprint);
+    return { ...row, extra };
+  });
+  const [only] = fingerprints;
+  return { rows, ...(fingerprints.size === 1 && typeof only === "string" && only ? { fingerprint: only } : {}) };
+}
+
+async function challenge<E extends GateEnv>(c: Context<E>, cfg: GateConfig, existing?: PaymentRequirements[], error = `${HEADER_PAYMENT_SIGNATURE} header is required`): Promise<Response> {
+  const { params, facilitator, invoices } = cfg;
   const invoiceId = existing ? invoiceIdOf(existing[0]) : (params.invoiceIdFactory ?? defaultInvoiceId)();
-  const reqs =
-    existing ??
-    (params.paymentOptions?.length ? params.paymentOptions : [{ asset, amount: String(params.price), ...(params.issuer ? { issuer: params.issuer } : {}), ...(params.extra ? { extra: params.extra } : {}) }]).map(
-      (opt) => {
-        const extra: JsonRecord = { ...(params.extra ?? {}), ...(opt.extra ?? {}) };
-        const issuer = opt.issuer ?? params.issuer;
-        if (issuer) extra.issuer = issuer;
-        if (extra.sourceTag == null && params.sourceTag != null) extra.sourceTag = params.sourceTag;
-        if (extra.facilitator == null && params.facilitatorIdentity) extra.facilitator = { ...params.facilitatorIdentity };
-        if (invoiceId) extra.invoiceId = invoiceId;
-        return { scheme, network, amount: String(opt.amount), asset: String(opt.asset), payTo: params.payToAddress, maxTimeoutSeconds, extra };
-      },
-    );
-  if (!existing && invoiceId) await invoices.put(invoiceId, reqs, { ttlSeconds: ttl });
-  const url = new URL(c.req.url);
-  const resourceUrl = params.resource ?? url.href;
+  const reqs = existing ?? requirementsFor(cfg, invoiceId);
+  const resourceUrl = resourceOf(c, params);
+  if (!existing && invoiceId) await invoices.put(invoiceId, stamp(reqs, await fingerprintOf(reqs, resourceUrl)), { ttlSeconds: cfg.ttl });
   let extensions: JsonRecord = {};
   if (params.x402SecurePolicyId) {
     if (!facilitator.createX402SecureRequirements) {
