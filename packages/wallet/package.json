@@ -12,10 +12,12 @@
   "sideEffects": false,
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./effect": { "types": "./dist/effect.d.ts", "default": "./dist/effect.js" },
     "./passkey": { "types": "./dist/passkey.d.ts", "default": "./dist/passkey.js" },
     "./package.json": "./package.json"
   },
   "engines": { "node": ">=20.19" },
+  "devEngines": { "runtime": { "name": "node", "version": "^22.18.0 || ^24.11.0 || >=26.0.0", "onFail": "error" } },
   "files": ["dist", "README.md", "LICENSE"],
   "dependencies": {
     "xrp-dev": "workspace:^"
@@ -32,10 +34,11 @@
   "devDependencies": {
     "@types/node": "26.6.5",
     "@xrplf/secret-numbers": "^3.0.0",
-    "effect": "^4.0.2",
+    "effect": "^4.1.2",
     "fast-check": "^4.10.2",
     "ripple-keypairs": "^3.1.0",
-    "vite-plus": "1.1.0",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
     "xrpl": "^5.3.0",
     "xrpl-connect": "1.0.0"
   },

@@ -14,7 +14,8 @@
   },
   "devDependencies": {
     "hono": "4.13.13",
-    "vite-plus": "1.1.0"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
   "scripts": {
     "build": "vp pack",

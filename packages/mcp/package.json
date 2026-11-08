@@ -32,6 +32,13 @@
   "engines": {
     "node": ">=20.19"
   },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^22.18.0 || ^24.11.0 || >=26.0.0",
+      "onFail": "error"
+    }
+  },
   "files": [
     "dist",
     "README.md",
@@ -48,11 +55,12 @@
     "test": "vp test run"
   },
   "devDependencies": {
-    "vite-plus": "1.1.0",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
     "@modelcontextprotocol/sdk": "1.32.1",
-    "@types/bun": "^1.4.2",
+    "@types/bun": "^1.4.4",
     "@types/node": "26.6.5",
     "xrp-dev-wallet": "workspace:*",
-    "effect": "^4.0.2"
+    "effect": "^4.1.2"
   }
 }
