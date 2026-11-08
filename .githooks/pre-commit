@@ -1,0 +1,5 @@
+#!/bin/sh
+# Installed by `bun install` (the `prepare` script sets core.hooksPath). Fast checks only: the full gate is `mise run check`.
+set -e
+bun run lint
+bun scripts/check-changelog.ts --staged

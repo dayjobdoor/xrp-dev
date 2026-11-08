@@ -14,9 +14,11 @@ const PACKAGES = ["core"];
 // Peers the consumer must provide (optional ones included, so every entry point resolves its types), at the
 // versions this repo tests with. Why not a range: it would re-resolve on every run, so a new upstream release
 // could break, or compromise, a publish. node_modules is what bun.lock pins.
-const PEERS = await Promise.all(
-  ["effect", "xrpl", "xrpl-connect", "hono"].map(async (name) => `${name}@${(await Bun.file(join(ROOT, "node_modules", name, "package.json")).json()).version}`),
-);
+const locked = async (name: string) => (await Bun.file(join(ROOT, "node_modules", name, "package.json")).json()).version as string;
+const PEERS = await Promise.all(["xrpl", "xrpl-connect", "hono"].map(async (name) => `${name}@${await locked(name)}`));
+// `effect` is a dependency of xrp-dev, so it must arrive with the tarball and is not added by hand; the override only
+// pins it to the locked version, for the same reason as the peers.
+const EFFECT = await locked("effect");
 // The consumer's own compiler for the tsc step; not a peer of the packages.
 const TSC = "typescript@7.0.2";
 
@@ -47,7 +49,7 @@ try {
   const app = join(tmp, "consumer");
   await mkdir(app);
   // bun pm pack rewrites workspace:* to the version, which is not on the registry yet: point it at the tarballs.
-  const overrides = Object.fromEntries(names.map((name, i) => [name, `file:${tarballs[i]}`]));
+  const overrides = { ...Object.fromEntries(names.map((name, i) => [name, `file:${tarballs[i]}`])), effect: EFFECT };
   await Bun.write(join(app, "package.json"), JSON.stringify({ name: "consumer", private: true, type: "module", overrides }));
   console.log("\n== consumer");
   // Fresh cache: a cached tarball of the same name and version from an earlier build must not be reused.
@@ -57,14 +59,17 @@ try {
   const probe = `const mods = ${JSON.stringify(specifiers)};
 for (const m of mods) { const x = await import(m); if (!Object.keys(x).length) throw new Error(m + " has no exports"); }
 console.log("imported", mods.length, "entry points");
-const { Effect } = await import("effect");
 const { decode, verifyTransaction } = await import("xrp-dev/codec");
 const { Wallet } = await import("xrp-dev/wallet");
-const run = Effect.runPromise;
-const wallet = await run(Wallet.fromEntropy(new Uint8Array(16).fill(7)));
-const { tx_blob } = await run(wallet.sign({ TransactionType: "Payment", Account: wallet.address, Destination: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Amount: "1", Fee: "10", Sequence: 1, LastLedgerSequence: 100 }));
-if (!(await run(verifyTransaction(tx_blob)))) throw new Error("a signed blob does not verify");
-if ((await run(decode(tx_blob))).Account !== wallet.address) throw new Error("decode lost the Account");
+const wallet = Wallet.fromEntropy(new Uint8Array(16).fill(7));
+const { tx_blob } = wallet.sign({ TransactionType: "Payment", Account: wallet.address, Destination: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Amount: "1", Fee: "10", Sequence: 1, LastLedgerSequence: 100 });
+if (!verifyTransaction(tx_blob)) throw new Error("a signed blob does not verify");
+if (decode(tx_blob).Account !== wallet.address) throw new Error("decode lost the Account");
+// The Promise client, against a stub answering every request with all the fields autofill reads.
+const { autofill, createRpcClient } = await import("xrp-dev/client");
+const stub = async () => Response.json({ result: { status: "success", ledger_current_index: 10, drops: { open_ledger_fee: "10" }, account_data: { Sequence: 3 } } });
+const filled = await autofill(createRpcClient({ url: "http://probe.invalid/", fetch: stub }), { TransactionType: "Payment", Account: wallet.address, Destination: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Amount: "1" });
+if (filled.Fee !== "10" || filled.Sequence !== 3 || filled.LastLedgerSequence !== 30) throw new Error("the Promise client did not autofill: " + JSON.stringify(filled));
 console.log("signed and verified a Payment");`;
   await $`node --input-type=module -e ${probe}`.cwd(app);
   await $`bun -e ${probe}`.cwd(app);

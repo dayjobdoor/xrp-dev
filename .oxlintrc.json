@@ -1,0 +1,13 @@
+{
+  "categories": { "correctness": "error" },
+  "rules": {
+    "no-explicit-any": "error",
+    "no-unused-vars": ["error", { "ignoreRestSiblings": true, "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
+    "unicorn/no-new-array": "off",
+    "unicorn/no-useless-spread": "off",
+    "unicorn/no-useless-fallback-in-spread": "off",
+    "unicorn/prefer-string-starts-ends-with": "off"
+  },
+  "overrides": [{ "files": ["**/test/**", "test/**"], "rules": { "no-explicit-any": "off" } }],
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/.vitest/**", "**/.skills-*/**"]
+}

@@ -12,6 +12,20 @@ permissions:
   contents: read
 
 jobs:
+  # Pull requests only (the workflow is manual while billing blocks runs): a change to a package's src/ carries a CHANGELOG.md entry.
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.x
+      - run: bun scripts/check-changelog.ts --base origin/${{ github.base_ref }}
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -24,6 +38,7 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
         env:

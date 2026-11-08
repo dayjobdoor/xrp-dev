@@ -1,0 +1,3 @@
+# `bun test` run inside a package: same per-test timeout as CI (see test/bun-setup.ts).
+[test]
+preload = ["../../test/bun-setup.ts"]

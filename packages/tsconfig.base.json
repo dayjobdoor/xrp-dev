@@ -6,6 +6,8 @@
     "lib": ["ES2022", "DOM"],
     "types": [],
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "isolatedModules": true,

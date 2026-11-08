@@ -2,3 +2,6 @@
 # Hoisted: tools such as Vite+ and Alchemy resolve their transitive packages from the root
 # `node_modules`, which the isolated linker does not populate.
 linker = "hoisted"
+
+[test]
+preload = ["./test/bun-setup.ts"]
