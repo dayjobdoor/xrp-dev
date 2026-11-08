@@ -336,6 +336,16 @@ type Verified = {
   paymentSignature: string;
 };
 
+/**
+ * Hono middleware for x402 v2 `exact` payments. Mount it with `app.use(path, gate)`; `network` is required.
+ *
+ * - The facilitator is the trust boundary for the ledger: the gate checks that it answered for this payment
+ *   (`isValid`/`success`, a `transaction`, the gate's network) but never reads the ledger itself.
+ * - Only a real CORS preflight (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) skips the gate: mount
+ *   `cors()` first and do not serve content from an `OPTIONS` handler.
+ * - Invoices are bound to this gate's requirements and URL. A store shared by several processes must implement
+ *   `InvoiceStore.claim`.
+ */
 export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions): PaymentGate<E> {
   if (!params.facilitator && !params.facilitatorUrl) {
     throw new Error("facilitator or facilitatorUrl is required");
