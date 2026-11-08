@@ -14,6 +14,7 @@
 - **Fix (`xrp-dev/x402`)**: only a real CORS preflight (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) skips the gate; any other `OPTIONS` is gated. The gate delivers only when the settlement answer carries a non-empty `transaction` and, if it names one, the gate's network. 402s, gate errors and paid responses carry `Cache-Control: no-store` and `Vary: PAYMENT-SIGNATURE`.
 - **Added (`xrp-dev/x402`)**: `InvoiceStore` may implement `claim(id, { ttlSeconds })` (atomic, for example Redis `SET NX EX`) and `release(id)`; the gate uses `claim` so two server processes cannot both deliver one payment. A store shared by several processes must implement it. New `packages/x402/README.md` states that the facilitator is the trust boundary for ledger checks.
 - **Fix (`xrp-dev/mcp`)**: a JSON-RPC batch is limited to 20 messages (a longer one gets one `-32600` reply) and runs at most 4 members at a time; before, 500 `account_info` calls in one batch reached the node as 500 concurrent requests.
+- **Release**: `scripts/check-packages.ts` records the SHA-256 of each tarball right after packing, fails if publint, attw or the consumer install changed one, and writes `SHA256SUMS` next to them; the publish job checks it after download and before `npm publish`. `docs/design-document.html` no longer calls the mcp bin Bun-only and names the real build scripts.
 
 ## 0.1.0-alpha.5 (2026-11-08)
 

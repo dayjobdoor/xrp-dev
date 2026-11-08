@@ -126,7 +126,7 @@ footer { border-top: 1px solid var(--line); padding: var(--space); text-align: c
     <tr><th>Category</th><th>Content</th></tr>
     <tr><td>Allowed</td><td>ES2022, <code>Uint8Array</code> / <code>DataView</code>, <code>TextEncoder</code> / <code>TextDecoder</code>, <code>fetch</code>, <code>WebSocket</code>, <code>crypto.subtle</code> / <code>crypto.getRandomValues</code>, <code>AbortSignal</code>, <code>ReadableStream</code>, <code>BigInt</code></td></tr>
     <tr><td>Not used</td><td>Imports of <code>node:*</code>, <code>Buffer</code>, <code>process</code>, <code>require</code>, <code>__dirname</code>, <code>ws</code>, <code>events</code>, conditional exports (<code>node</code> / <code>browser</code> branches)</td></tr>
-    <tr><td>Exceptions</td><td><code>codemode/apps/agent/src/xrp-connector.ts</code> (the Code Mode connector) is workerd-only (it uses <code>cloudflare:workers</code>). The stdio launcher of <code>xrp-dev-mcp</code> is Bun-only. The library itself (<code>xrp-dev</code>, <code>xrp-dev-wallet</code>, <code>xrp-dev-wallet/passkey</code>) has no exceptions.</td></tr>
+    <tr><td>Exceptions</td><td><code>codemode/apps/agent/src/xrp-connector.ts</code> (the Code Mode connector) is workerd-only (it uses <code>cloudflare:workers</code>). The stdio launcher of <code>xrp-dev-mcp</code> is not an exception: its shebang is <code>#!/usr/bin/env node</code> and <code>bun run check</code> runs it under both Node and Bun. The library itself (<code>xrp-dev</code>, <code>xrp-dev-wallet</code>, <code>xrp-dev-wallet/passkey</code>) has no exceptions.</td></tr>
     <tr><td>How it is checked</td><td>Mechanically, by types (<code>types: []</code>) and by scanning the bundle (<a href="#tests">P01, P02</a>).</td></tr>
   </table>
 
@@ -306,7 +306,7 @@ export class Wallet {
     <li>Tool definitions (name, description, JSON Schema, <code>annotations</code>, handler) are gathered into one registry. All tools except <code>submit</code> have <code>readOnlyHint: true</code>. There are two transports:
       <ul>
         <li>Remote: add the tools to the existing agent <code>POST /mcp</code> (hand-written JSON-RPC).</li>
-        <li>Local: start a stdio server with <code>bun packages/mcp/bin/mcp.ts --network testnet</code> (run from the repo root; after npm publication, <code>bunx xrp-dev-mcp</code>). Bun-only.</li>
+        <li>Local: start a stdio server with <code>bun packages/mcp/bin/mcp.ts --network testnet</code> (run from the repo root; after npm publication, <code>npx -y --package xrp-dev xrp-dev-mcp</code>, or <code>bunx --bun --package xrp-dev xrp-dev-mcp</code>). The published bin runs under Node (shebang) and Bun.</li>
       </ul>
     </li>
     <li>Tools: the same set as Code Mode, plus read tools such as <code>account_info</code> and <code>tx</code>. Remote uses the Service Binding; local uses a public node.</li>
@@ -608,7 +608,7 @@ export class Wallet {
   "peerDependencies": { "xrpl-connect": "^1.0.0", "xrpl": "^4.0.0 || ^5.0.0" }   // both optional. Used only by the types of ./passkey
 }
 
-// xrp-dev-mcp (bin xrp-dev-mcp is for Bun)
+// xrp-dev-mcp (bin xrp-dev-mcp has a #!/usr/bin/env node shebang and runs under Node and Bun)
 { "dependencies": { "xrp-dev": "workspace:*" } }</code></pre>
 <pre><code>// tsconfig.base.json (this single file is the shared one)
 {
@@ -621,11 +621,11 @@ export class Wallet {
   }
 }</code></pre>
   <ul>
-    <li><strong>Removed:</strong> <code>engines.node</code> (contradicts Node independence), the <code>require</code> condition (only ESM is emitted), and the TypeScript peer dependency.</li>
-    <li><strong>Versions:</strong> TypeScript is 7.0.2, the same as the repository (not made a peer dependency of the packages. The consumer-side project of <code>check:packages</code> installs it separately for type checking).</li>
+    <li><strong>Removed:</strong> the <code>require</code> condition (only ESM is emitted) and the TypeScript peer dependency. <code>engines.node</code> (<code>&gt;=20.19</code>) is set in every package as the floor for Node consumers.</li>
+    <li><strong>Versions:</strong> TypeScript is 7.0.2, the same as the repository (not made a peer dependency of the packages. The consumer-side project of <code>bun run check</code> installs it separately for type checking).</li>
     <li><strong>Names:</strong> as of 2026-10-11, <code>xrp-dev</code>, <code>xrp-dev-wallet</code>, and <code>xrp-dev-mcp</code> do not exist on npm (confirmed with <code>npm view</code>). They have not been claimed. The old <code>@xrp-dev/passkey</code> and <code>@xrp-dev/codemode</code> were merged on 2026-10-11 (D7).</li>
-    <li><strong>Build and checks:</strong> <code>bun run build:packages</code> at the repo root produces <code>dist</code> in the order core → wallet → mcp. The apps and tests also read <code>dist</code>, so build first before <code>typecheck</code>, <code>test</code>, <code>plan</code>, and <code>deploy</code>. <code>bun run check:packages</code> (also run in CI) runs publint and attw (ESM only) on the tarball made by <code>bun pm pack</code>, installs it into a separate project, imports every subpath on Node and Bun, and checks types with <code>tsc</code> (node16 and bundler).</li>
-    <li><strong>Publishing (not done):</strong> <code>npm publish</code> does not rewrite <code>workspace:*</code>, so publish the <code>bun pm pack</code> tarball with <code>npm publish &lt;tgz&gt; --provenance</code> (GitHub OIDC). <code>id-token: write</code> is given only to the publishing job. Claiming the npm organization <code>@xrp-dev</code> is a human task.</li>
+    <li><strong>Build and checks:</strong> <code>bun run build</code> at the repo root produces <code>dist</code> in the order core → wallet → mcp → x402 and assembles them into the <code>xrp-dev</code> package. The apps and tests also read <code>dist</code>, so build first before <code>typecheck</code>, <code>test</code>, <code>plan</code>, and <code>deploy</code> (<code>typecheck</code> and <code>test</code> run the build themselves). <code>bun run check</code> (also run in CI) first checks the bundles, then runs publint and attw (ESM only) on the tarball made by <code>bun pm pack</code>, installs it into a separate project, imports every subpath on Node and Bun, runs the <code>xrp-dev-mcp</code> bin under both, and checks types with <code>tsc</code> (node16 and bundler).</li>
+    <li><strong>Publishing:</strong> <code>npm publish</code> does not rewrite <code>workspace:*</code>, so <code>.github/workflows/publish.yml</code> publishes the <code>bun pm pack</code> tarball that <code>bun run check</code> verified (<code>npm publish &lt;tgz&gt;</code>, GitHub OIDC trusted publishing, provenance automatic). The tarball's SHA-256 is recorded after the check and re-verified in the publishing job before <code>npm publish</code>. <code>id-token: write</code> is given only to the publishing job. Claiming the npm organization <code>@xrp-dev</code> is a human task.</li>
   </ul>
 </section>
 

@@ -7,7 +7,7 @@
 import { $ } from "bun";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const PACKAGES = ["core"];
@@ -22,6 +22,8 @@ const EFFECT = await locked("effect");
 // The consumer's own compiler for the tsc step; not a peer of the packages.
 const TSC = "typescript@7.0.2";
 
+const sha256 = async (file: string) => new Bun.CryptoHasher("sha256").update(await Bun.file(file).bytes()).digest("hex");
+
 const tmp = await mkdtemp(join(tmpdir(), "xrp-dev-pack-"));
 const packDir = process.env.PACK_DIR ?? tmp;
 try {
@@ -29,12 +31,14 @@ try {
   const tarballs: string[] = [];
   const specifiers: string[] = [];
   const names: string[] = [];
+  const hashes = new Map<string, string>();
   for (const dir of PACKAGES) {
     const cwd = join(ROOT, "packages", dir);
     const pkg = await Bun.file(join(cwd, "package.json")).json();
     await $`bun pm pack --destination ${packDir} --quiet`.cwd(cwd);
     const tgz = join(packDir, `${pkg.name.replace("/", "-")}-${pkg.version}.tgz`);
     tarballs.push(tgz);
+    hashes.set(tgz, await sha256(tgz));
     names.push(pkg.name);
     for (const sub of Object.keys(pkg.exports)) if (sub !== "./package.json") specifiers.push(pkg.name + sub.slice(1));
     console.log(`\n== ${pkg.name}`);
@@ -98,6 +102,10 @@ console.log("signed and verified a Payment");`;
     console.log(`tsc ${name}`);
     await $`./node_modules/.bin/tsc -p ${config}`.cwd(app);
   }
+  // publint, attw and the consumer install run code that bun.lock does not pin next to these files. A tarball that
+  // changed since it was packed must never reach `npm publish`, so the hashes are taken before they run and checked after.
+  for (const [tgz, hash] of hashes) if ((await sha256(tgz)) !== hash) throw new Error(`${basename(tgz)} changed while it was being checked`);
+  if (process.env.PACK_DIR) await Bun.write(join(packDir, "SHA256SUMS"), [...hashes].map(([tgz, hash]) => `${hash}  ${basename(tgz)}\n`).join(""));
   console.log(`\nok: ${specifiers.length} entry points, ${tarballs.length} tarballs${process.env.PACK_DIR ? ` kept in ${packDir}` : ""}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
