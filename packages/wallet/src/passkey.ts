@@ -1,8 +1,8 @@
-import { entropyFromPrf, signingRefusal, toSecretNumbers, Wallet, type Algorithm } from "./index.js";
+import { entropyFromPrf, signingRefusal, toSecretNumbers, Wallet, type Algorithm } from "./effect.js";
 import { focused } from "./focus.js";
 import { prfSalt, type PrfDerivation } from "./prf.js";
-import { autofill, submit, type RpcClient } from "xrp-dev/client";
-import { decode, type Definitions, type TxJson } from "xrp-dev/codec";
+import { autofill, submit, type PromiseRpcClient, type RpcClient } from "xrp-dev/effect/client";
+import { decode, type Definitions, type TxJson } from "xrp-dev/effect/codec";
 import { Effect } from "effect";
 import type { SubmittableTransaction } from "xrpl";
 import type { AccountInfo, ConnectOptions, NetworkInfo, ReconnectOptions, SignedMessage, SignedTransaction, SubmittedTransaction, WalletAdapter, WalletCapabilities } from "xrpl-connect";
@@ -31,7 +31,7 @@ export class PasskeyError extends Error {
 export interface PasskeyAdapterOptions {
   network: NetworkInfo;
   /** Where `signAndSubmit` sends the signed blob (a public rippled node, straight from the browser). */
-  client: RpcClient;
+  client: RpcClient | PromiseRpcClient;
   rpId?: string;
   /** Restricts `connect` to one passkey. */
   credentialId?: Uint8Array;

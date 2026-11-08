@@ -1,7 +1,7 @@
-import { Wallet } from "../src/index.js";
-import { decode, hashTransaction, verifyTransaction } from "xrp-dev/codec";
-import { ClientError } from "xrp-dev";
-import type { RpcClient } from "xrp-dev/client";
+import { Wallet } from "../src/effect.js";
+import { decode, hashTransaction, verifyTransaction } from "xrp-dev/effect/codec";
+import { ClientError } from "xrp-dev/effect";
+import type { RpcClient } from "xrp-dev/effect/client";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import type { SubmittableTransaction } from "xrpl";

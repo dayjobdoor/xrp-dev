@@ -15,7 +15,7 @@ const bundle = (entry: string): string => {
 };
 
 // P02: nothing Node-specific, and none of the test oracles, may end up in a bundle.
-const ENTRIES = ["../src/index.ts", "../src/passkey.ts"];
+const ENTRIES = ["../src/index.ts", "../src/effect.ts", "../src/passkey.ts"];
 const NODE_TRACES = [/node:/, /require\(/, /\bBuffer\b/, /process\./];
 // bun inlines dependencies, so xrpl.js shows up as its own text, never as an import. The ledger name and hosts in
 // NETWORK_PRESETS ("xrpl:mainnet", "xrplcluster.com", "xrpl.org", "xrpl-labs.com") are allowed; any other "xrpl" is the library.
@@ -27,6 +27,22 @@ describe("P02 bundles carry no Node traces", () => {
     const out = bundle(path(rel)).replaceAll('globalThis.process?.getBuiltinModule?.("node:async_hooks")', "");
     expect(out.length).toBeGreaterThan(1000);
     for (const re of [...NODE_TRACES, ...ORACLES]) expect(out, String(re)).not.toMatch(re);
+  });
+});
+
+// P03: the plain wallet is Effect-free. Bundled with `effect` left external, it must not import it (the Effect entry does).
+describe("P03 the plain wallet imports no effect", () => {
+  const external = (entry: string) =>
+    spawnSync("bun", ["build", "--target=browser", "--format=esm", "--external", "effect", path(entry)], { encoding: "utf8", maxBuffer: 64 << 20 }).stdout;
+
+  it("src/index.ts", () => {
+    const out = external("../src/index.ts");
+    expect(out.length).toBeGreaterThan(1000);
+    expect(out).not.toMatch(/from\s+["']effect/);
+  });
+
+  it("src/effect.ts does (the check can fail)", () => {
+    expect(external("../src/effect.ts")).toMatch(/from\s+["']effect/);
   });
 });
 

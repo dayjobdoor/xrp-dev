@@ -3,10 +3,10 @@ import { Effect } from "effect";
 import fc from "fast-check";
 import * as keypairs from "ripple-keypairs";
 import { describe, expect, it } from "vite-plus/test";
-import { decode, encode, encodeForMultisigning, encodeForSigning, signerMatchesAccount, verifyTransaction } from "xrp-dev/codec";
+import { decode, encode, encodeForMultisigning, encodeForSigning, signerMatchesAccount, verifyTransaction } from "xrp-dev/effect/codec";
 import { multisign, walletFromSecretNumbers, Wallet as XrplWallet } from "xrpl";
-import { bytesToHex } from "xrp-dev/crypto";
-import { entropyFromPrf, entropyToSeed, signingRefusal, toSecretNumbers, Wallet } from "../src/index.js";
+import { bytesToHex } from "xrp-dev/effect/crypto";
+import { entropyFromPrf, entropyToSeed, signingRefusal, toSecretNumbers, Wallet } from "../src/effect.js";
 
 const run = Effect.runPromise;
 
