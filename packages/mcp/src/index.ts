@@ -27,6 +27,23 @@ const fail = (id: string | number | null, code: number, message: string): Reply 
 
 const toolResult = (text: string, isError: boolean) => ({ isError, content: [{ type: "text", text }] });
 
+const MAX_BATCH = 20;
+const BATCH_CONCURRENCY = 4;
+
+/** `Promise.all(items.map(fn))` with at most `limit` calls in flight; results keep input order. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /**
  * One JSON-RPC message in, the reply out; `undefined` for a notification, which gets no reply.
  * An array is a batch (2025-03-26 requires them): replies come back as an array, without the notifications' entries.
@@ -39,8 +56,8 @@ export async function handleJsonRpc<D extends Deps>(
   serverInfo: { name: string; version: string },
 ): Promise<Reply | Reply[] | undefined> {
   if (!Array.isArray(input)) return handleMessage(tools, deps, input, serverInfo);
-  if (input.length === 0) return fail(null, -32600, "Invalid Request");
-  const replies = (await Promise.all(input.map((message) => handleMessage(tools, deps, message, serverInfo)))).filter((r) => r !== undefined);
+  if (input.length === 0 || input.length > MAX_BATCH) return fail(null, -32600, "Invalid Request");
+  const replies = (await mapLimit(input, BATCH_CONCURRENCY, (message) => handleMessage(tools, deps, message, serverInfo))).filter((r) => r !== undefined);
   return replies.length > 0 ? replies : undefined;
 }
 

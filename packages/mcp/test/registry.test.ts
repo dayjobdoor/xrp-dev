@@ -107,6 +107,35 @@ describe("registry", () => {
     const boom = defineTool({ name: "boom", description: "", schema: S.Struct({}), handler: () => Effect.die("x") });
     expect(await handleJsonRpc([boom], deps, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "boom" } }, info)).toMatchObject({ error: { code: -32603 } });
   });
+
+  it("batch: at most 4 members in flight, replies in order, notifications silent, over 20 rejected", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const deps: Deps = {
+      client: (): RpcClient => ({
+        request: <T>() =>
+          Effect.promise(async () => {
+            maxInFlight = Math.max(maxInFlight, ++inFlight);
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            inFlight--;
+            return NETWORK.account_info as T;
+          }),
+      }),
+    };
+    const message = (id: number) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "account_info", arguments: { account: ACCOUNT } } });
+    const notification = { jsonrpc: "2.0", method: "notifications/initialized" };
+
+    const batch = Array.from({ length: 20 }, (_, i) => (i % 5 === 4 ? notification : message(i)));
+    const replies = (await handleJsonRpc(tools, deps, batch, info)) as { id: number; result: unknown }[];
+    expect(replies.map((r) => r.id)).toEqual(Array.from({ length: 20 }, (_, i) => i).filter((i) => i % 5 !== 4));
+    expect(replies.every((r) => "result" in r)).toBe(true);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+
+    const tooMany = await handleJsonRpc(tools, deps, Array.from({ length: 21 }, (_, i) => message(i)), info);
+    expect(tooMany).toEqual({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
+    expect(await handleJsonRpc(tools, deps, Array.from({ length: 20 }, () => notification), info)).toBeUndefined();
+  });
 });
 
 describe("tools", () => {

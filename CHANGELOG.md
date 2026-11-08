@@ -13,6 +13,7 @@
 - **Breaking (`xrp-dev/x402`)**: `network` is required (it silently defaulted to testnet `xrpl:1`), the `path` option is gone (it compared against the full request path, so a gate mounted through `app.route("/api", ...)` never matched and served the content free; mount the gate with `app.use(path, gate)`), and `settle` and `gate.verifyOnly` are gone (a verify-only delivery never charged and could be replayed). Passing a removed option throws. `chargeOnDelivery` keeps its verify, produce, settle order through an internal handler.
 - **Fix (`xrp-dev/x402`)**: only a real CORS preflight (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) skips the gate; any other `OPTIONS` is gated. The gate delivers only when the settlement answer carries a non-empty `transaction` and, if it names one, the gate's network. 402s, gate errors and paid responses carry `Cache-Control: no-store` and `Vary: PAYMENT-SIGNATURE`.
 - **Added (`xrp-dev/x402`)**: `InvoiceStore` may implement `claim(id, { ttlSeconds })` (atomic, for example Redis `SET NX EX`) and `release(id)`; the gate uses `claim` so two server processes cannot both deliver one payment. A store shared by several processes must implement it. New `packages/x402/README.md` states that the facilitator is the trust boundary for ledger checks.
+- **Fix (`xrp-dev/mcp`)**: a JSON-RPC batch is limited to 20 messages (a longer one gets one `-32600` reply) and runs at most 4 members at a time; before, 500 `account_info` calls in one batch reached the node as 500 concurrent requests.
 
 ## 0.1.0-alpha.5 (2026-11-08)
 
