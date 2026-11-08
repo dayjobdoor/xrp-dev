@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.6 (2026-11-08)
 
 - **Breaking: `xrp-dev/auth` sign-in is bound to the origin, unique per challenge and optionally single-use.** A challenge is now `<unix ms>.<hex nonce>.<hex hmac>` with a random 128-bit nonce, so two challenges never match, and the HMAC covers the web `origin` as well as the `app`. `createChallenge`, `isFreshChallenge`, `verifyLogin` and `loginWithName` take a required `origin` (the app's own, e.g. `https://app.example`); `loginMessage` and `loginProofTx` take one object `{ app, origin, challenge, name? }` and the signed text is `<app> login\nOrigin: <origin>\n[Name: <name>\n]Challenge: <challenge>`. `login()` passes `location.origin` by default (`origin` outside a browser), builds the text itself and signs the `name` when it gets one, so a relayed signature cannot register another name. New optional `consumeChallenge(nonce, expiresAtMs)` on `verifyLogin` / `loginWithName`: when it returns `false` the answer is the new code `challenge_used`; without it a signed login can be replayed for 5 minutes. Challenges in the old format fail with `challenge_invalid`.
 - **Fix (`xrp-dev/auth`)**: `verifyProofTx` checks that the blob has no `Signers` and that its one `SigningPubKey` is the account's own key before it verifies a signature, so a multisigned blob with 32 signers no longer costs about 130 ms. `verifyLogin` answers `invalid_request` for a `proof` over 4096, a `signature` over 160, a `publicKey` over 66 or a `name` over 128 characters.
