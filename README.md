@@ -1,6 +1,6 @@
 # xrp-dev
 
-XRPL SDK built on [Effect](https://effect.website) for workerd, Bun, browsers and Node, published as the single npm package [`xrp-dev`](packages/core/README.md).
+XRPL SDK for workerd, Bun, browsers and Node (`xrp-dev`: plain functions and Promises, with an [Effect](https://effect.website) API under `xrp-dev/effect`; `xrp-dev/mcp`'s tools are Effects), published as the single npm package [`xrp-dev`](packages/core/README.md).
 
 | Directory | Ships as |
 | --- | --- |

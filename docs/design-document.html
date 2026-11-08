@@ -109,7 +109,7 @@ footer { border-top: 1px solid var(--line); padding: var(--space); text-align: c
   <h2><span class="num">01</span>Goals</h2>
   <table>
     <tr><th>Horizon</th><th>Goal</th><th>Done when</th></tr>
-    <tr><td>Final</td><td>An XRPL SDK that runs on Web Standard APIs only. The same code runs on Bun, Cloudflare Workers (workerd), and the browser.</td><td>All packages pass <a href="#tests">P01–P04</a>. The only external runtime npm dependency is <code>effect</code> (D3).</td></tr>
+    <tr><td>Final</td><td>An XRPL SDK that runs on Web Standard APIs only. The same code runs on Bun, Cloudflare Workers (workerd), and the browser.</td><td>All packages pass <a href="#tests">P01–P04</a>. The external runtime npm dependencies are <code>@noble/curves</code>, <code>@noble/hashes</code> and <code>effect</code> (D3); the plain entries (crypto, address, codec, auth) load no <code>effect</code>.</td></tr>
     <tr><td>Short term</td><td>Feature parity with xrpl.js: serialization, signing, and submit preparation for the main transactions, addresses, seeds. Documentation is also in place.</td><td>Differential tests against xrpl.js fixtures all match (<a href="#tests">W-*</a>).</td></tr>
     <tr><td>Mid term</td><td>AI integration (Code Mode, MCP, Skills) and a Passkey wallet (xrpl-connect adapter).</td><td><a href="#tests">C-*, M-*, S-*, K-*, A-*</a> pass.</td></tr>
   </table>
@@ -178,9 +178,9 @@ apps/agent    ← xrp-dev-mcp, xrp-dev (xrp-dev-wallet only in tests)</code></pr
 
   <h3>Common policy</h3>
   <ul>
-    <li><strong>Use Effect 4 (D3).</strong> Fallible operations return <code>Effect.Effect&lt;A, E&gt;</code>, and errors are per-domain <code>Data.TaggedError</code>s (<code>CodecError</code>, <code>CryptoError</code>, <code>AddressError</code>, <code>ClientError</code>, <code>WalletError</code>). They are subdivided by <code>reason</code> (e.g. <code>"unknown_field"</code>). Pure functions that cannot fail (such as <code>bytesToHex</code>) return values.</li>
-    <li><strong>Hashing uses <code>crypto.subtle</code> (async),</strong> so anything that includes hashing (signing, address derivation, transaction hashing) is async inside Effect. The codec itself does not use hashing.</li>
-    <li><strong>Call <code>Effect.runPromise</code> only at boundaries that need a Promise</strong> (the xrpl-connect adapter, MCP handlers).</li>
+    <li><strong>Plain TypeScript core, Effect for I/O (D3, revised).</strong> <code>crypto</code>, <code>address</code>, <code>codec</code> and <code>auth</code> are plain functions that return values and throw per-domain errors (<code>CodecError</code>, <code>CryptoError</code>, <code>AddressError</code>, <code>ClientError</code>): plain <code>Error</code> subclasses with <code>_tag</code>, <code>reason</code> and an optional <code>cause</code>. Effect 4 is used where it earns its keep: the RPC / WebSocket client (<code>xrp-dev/effect/client</code>: timeouts, interruption, socket bookkeeping), the passkey adapter and the MCP handlers. <code>xrp-dev/effect/{crypto,address,codec}</code> are thin adapters that fail with the same error instances (<code>lift(ErrorClass)</code>); anything else thrown is a defect. <code>WalletError</code> follows the same pattern: <code>xrp-dev/wallet</code> is the plain implementation and <code>xrp-dev/effect/wallet</code> the adapter.</li>
+    <li><strong>Hashing is synchronous</strong> (<code>@noble/hashes</code>), so signing, address derivation and transaction hashing need no Promise. Only the server half of <code>xrp-dev/auth</code> (HMAC) and the wallet's HKDF still use <code>crypto.subtle</code>.</li>
+    <li><strong>Call <code>Effect.runPromise</code> only at boundaries that need a Promise</strong>: <code>xrp-dev/client</code> (a Promise wrapper over the Effect client), the xrpl-connect adapter, MCP handlers.</li>
     <li><strong>Byte input and output use <code>Uint8Array</code></strong>, and hex is an uppercase string. <code>Buffer</code> is not used.</li>
     <li><strong>Objects that hold key material</strong> do not expose their contents through <code>toJSON()</code> or <code>toString()</code>. <code>destroy()</code> fills the bytes with 0.</li>
   </ul>
@@ -188,22 +188,21 @@ apps/agent    ← xrp-dev-mcp, xrp-dev (xrp-dev-wallet only in tests)</code></pr
   <h3><code>xrp-dev</code> — core</h3>
   <table>
     <tr><th>Subpath</th><th>Main API</th><th>Notes</th></tr>
-    <tr><td><code>xrp-dev/crypto</code></td><td><code>sha256</code>, <code>sha512</code>, <code>sha512Half</code>, <code>ripemd160</code>, <code>base58Encode</code> / <code>base58Decode</code> / <code>base58CheckEncode</code> / <code>base58CheckDecode</code>, <code>bytesToHex</code> / <code>hexToBytes</code>, <code>secp256k1</code> (<code>getPublicKey</code>, <code>sign</code>, <code>verify</code>), <code>ed25519</code> (same)</td><td>RIPEMD-160 and the elliptic curves are <code>@noble/hashes</code> / <code>@noble/curves</code> (D4, <a href="#spec">section 06</a>); SHA-2 is Web Crypto.</td></tr>
+    <tr><td><code>xrp-dev/crypto</code></td><td><code>sha256</code>, <code>sha512</code>, <code>sha512Half</code>, <code>ripemd160</code>, <code>base58Encode</code> / <code>base58Decode</code> / <code>base58CheckEncode</code> / <code>base58CheckDecode</code>, <code>bytesToHex</code> / <code>hexToBytes</code>, <code>secp256k1</code> (<code>getPublicKey</code>, <code>sign</code>, <code>verify</code>), <code>ed25519</code> (same)</td><td>RIPEMD-160 and the elliptic curves are <code>@noble/hashes</code> / <code>@noble/curves</code> (D4, <a href="#spec">section 06</a>); SHA-2 is <code>@noble/hashes</code>.</td></tr>
     <tr><td><code>xrp-dev/address</code></td><td><code>deriveAccountId(publicKey)</code>, <code>encodeAccountId</code> / <code>decodeAccountId</code>, <code>isValidClassicAddress</code>, <code>classicToXAddress</code> / <code>xAddressToClassic</code></td><td>Supports X-address (XLS-5d).</td></tr>
     <tr><td><code>xrp-dev/codec</code></td><td><code>encode(tx)</code>, <code>decode(hex)</code>, <code>encodeForSigning(tx)</code>, <code>encodeForMultisigning(tx, account)</code>, <code>hashTransaction(blob)</code>, <code>definitions</code></td><td>Driven by the definitions (a snapshot of <code>server_definitions</code>). Types are generated from these definitions.</td></tr>
-    <tr><td><code>xrp-dev/client</code></td><td><code>createRpcClient({ url, fetch?, timeoutMs?, maxBodyBytes? })</code>, <code>createWsClient({ url, WebSocket? })</code>, <code>autofill(client, tx)</code>, <code>submit(client, blob)</code></td><td>Returns <code>Effect.Effect&lt;A, ClientError&gt;</code>. Carries over the behavior of <code>Rippled.ts</code> in the current <code>apps/xrpl</code> (10-second deadline, 5 MB limit, errors inside a 200 response become typed errors). <code>submit</code> accepts only signed blobs.</td></tr>
+    <tr><td><code>xrp-dev/client</code></td><td><code>createRpcClient({ url, fetch?, timeoutMs?, maxBodyBytes? })</code>, <code>createWsClient({ url, WebSocket? })</code>, <code>autofill(client, tx)</code>, <code>submit(client, blob)</code></td><td><code>autofill</code> and <code>submit</code> return Promises and the clients' <code>request</code> / <code>close</code> return Promises that reject with <code>ClientError</code>; the Effect version is <code>xrp-dev/effect/client</code>; <code>xrp-dev-wallet</code> and <code>xrp-dev-mcp</code> accept either (<code>toEffectClient</code>). Carries over the behavior of <code>Rippled.ts</code> in the current <code>apps/xrpl</code> (10-second deadline, 5 MB limit, errors inside a 200 response become typed errors). <code>submit</code> accepts only signed blobs.</td></tr>
     <tr><td>Root (<code>xrp-dev</code>)</td><td><code>verifyTransaction(blob)</code>, <code>signerMatchesAccount</code>, <code>NETWORKS</code>, <code>PUBLIC_RPC_URLS</code>, <code>publicKeyToAddress</code></td><td>Added on 2026-10-11 (<code>verifyTransaction</code> was moved from wallet). It holds no keys, so servers (such as the MCP <code>submit</code>) can import it. <code>deriveAddress</code> rejects anything that is not a public key (not 33 bytes, or neither an ED prefix nor a valid compressed secp256k1 point).</td></tr>
   </table>
-<pre><code>// Public API of xrp-dev (excerpt)
-import { Data, Effect } from "effect";
-export class CodecError extends Data.TaggedError("CodecError")&lt;{ reason: "unknown_field" | "bad_type" | "out_of_range" | "bad_length"; field?: string }&gt; {}
+<pre><code>// Public API of xrp-dev (excerpt): plain functions; the Effect twins are under xrp-dev/effect
+export class CodecError extends Error { readonly _tag: "CodecError"; readonly reason: "unknown_field" | "bad_type" | "out_of_range" | "bad_length"; readonly field?: string }
 export type Hex = string;
-export const encode: (tx: TxJson) =&gt; Effect.Effect&lt;Hex, CodecError&gt;;
-export const decode: (blob: Hex) =&gt; Effect.Effect&lt;TxJson, CodecError&gt;;
-export const encodeForSigning: (tx: TxJson) =&gt; Effect.Effect&lt;Uint8Array, CodecError&gt;;   // "STX\0" + serialization without the signing fields
-export const hashTransaction: (blob: Hex) =&gt; Effect.Effect&lt;Hex, CodecError&gt;;             // sha512Half("TXN\0" + blob)
-export const deriveAccountId: (publicKey: Uint8Array) =&gt; Effect.Effect&lt;Uint8Array&gt;;       // ripemd160(sha256(pk))
-export interface RpcClient { request&lt;T&gt;(method: string, params?: object): Effect.Effect&lt;T, ClientError&gt;; }</code></pre>
+export const encode: (tx: TxJson) =&gt; Hex;                          // throws CodecError
+export const decode: (blob: Hex) =&gt; TxJson;                        // throws CodecError
+export const encodeForSigning: (tx: TxJson) =&gt; Uint8Array;         // "STX\0" + serialization without the signing fields
+export const hashTransaction: (blob: Hex) =&gt; Hex;                  // sha512Half("TXN\0" + blob)
+export const deriveAccountId: (publicKey: Uint8Array) =&gt; Uint8Array;   // ripemd160(sha256(pk))
+export interface RpcClient { request&lt;T&gt;(method: string, params?: object): Promise&lt;T&gt;; }   // rejects with ClientError</code></pre>
 
   <h3><code>xrp-dev-wallet</code> — keys and signing</h3>
   <table>
@@ -213,15 +212,16 @@ export interface RpcClient { request&lt;T&gt;(method: string, params?: object): 
     <tr><td>Secret Numbers (XLS-12)</td><td>Split 16 bytes of entropy into 8 blocks of 2 bytes each, and append a 1-digit checksum to each block</td><td><code>Wallet.fromSecretNumbers(groups)</code>, <code>toSecretNumbers(entropy)</code></td></tr>
     <tr><td>Passkey PRF</td><td>Run the PRF output (32 bytes) through HKDF-SHA256 to get 16 bytes of entropy, and make it a Family Seed</td><td><code>Wallet.fromPrf(prfOutput, { algorithm })</code></td></tr>
   </table>
-<pre><code>export class Wallet {
-  static fromSeed(seed: string): Effect.Effect&lt;Wallet, WalletError&gt;;
-  static fromEntropy(entropy: Uint8Array, opts?: { algorithm?: "secp256k1" | "ed25519" }): Effect.Effect&lt;Wallet, WalletError&gt;;
-  static fromSecretNumbers(input: string | string[]): Effect.Effect&lt;Wallet, WalletError&gt;;   // reason: "bad_checksum" (with position), etc.
-  static fromPrf(prf: Uint8Array, opts?: { salt?: Uint8Array; algorithm?: "secp256k1" | "ed25519" }): Effect.Effect&lt;Wallet, WalletError&gt;;
+<pre><code>// xrp-dev/wallet: plain. The Effect twin (Effect.Effect&lt;A, WalletError&gt; everywhere) is xrp-dev/effect/wallet.
+export class Wallet {
+  static fromSeed(seed: string): Wallet;                         // throws WalletError
+  static fromEntropy(entropy: Uint8Array, opts?: { algorithm?: "secp256k1" | "ed25519" }): Wallet;
+  static fromSecretNumbers(input: string | string[]): Wallet;    // reason: "bad_checksum" (with position), etc.
+  static fromPrf(prf: Uint8Array, opts?: { salt?: Uint8Array; algorithm?: "secp256k1" | "ed25519" }): Promise&lt;Wallet&gt;;   // HKDF is WebCrypto
   readonly address: string;
   readonly publicKey: Hex;
-  sign(tx: TxJson, opts?: { multisign?: boolean }): Effect.Effect&lt;{ tx_blob: Hex; hash: Hex }, WalletError | CodecError&gt;;
-  signMessage(message: Uint8Array): Effect.Effect&lt;Hex, WalletError&gt;;
+  sign(tx: TxJson, opts?: { multisign?: boolean }): { tx_blob: Hex; hash: Hex };   // throws WalletError | CodecError
+  signMessage(message: Uint8Array): Hex;
   destroy(): void;                      // fills the private key bytes with 0
   toJSON(): { address: string; publicKey: Hex };   // does not expose secrets
 }
@@ -262,7 +262,7 @@ export interface RpcClient { request&lt;T&gt;(method: string, params?: object): 
       <ul>
         <li><code>connect()</code>: calls <code>navigator.credentials.get()</code> with PRF and creates the key with <code>Wallet.fromPrf</code>.</li>
         <li><code>sign()</code>: calls <code>Wallet.sign</code>.</li>
-        <li><code>signAndSubmit()</code>: submits with <code>submit</code> from <code>xrp-dev/client</code>. The destination is a public node directly from the browser, not via this repository's server. The Effect is converted to a Promise with <code>Effect.runPromise</code> and returned.</li>
+        <li><code>signAndSubmit()</code>: submits with <code>submit</code> from <code>xrp-dev/effect/client</code>. The destination is a public node directly from the browser, not via this repository's server. The Effect is converted to a Promise with <code>Effect.runPromise</code> and returned.</li>
         <li><code>disconnect()</code>: calls <code>Wallet.destroy()</code>.</li>
       </ul>
     </li>
@@ -418,7 +418,7 @@ export interface RpcClient { request&lt;T&gt;(method: string, params?: object): 
   <h3>Implementation assignments</h3>
   <table>
     <tr><th>Feature</th><th>Implementation</th><th>Notes</th></tr>
-    <tr><td>SHA-256 / SHA-512</td><td><code>crypto.subtle.digest</code></td><td></td></tr>
+    <tr><td>SHA-256 / SHA-512</td><td><code>@noble/hashes</code></td><td></td></tr>
     <tr><td>RIPEMD-160</td><td>Pure TS (about 80 lines)</td><td>Not in Web Crypto</td></tr>
     <tr><td>Base58Check</td><td>Pure TS (BigInt). The checksum is SHA-256 twice</td><td></td></tr>
     <tr><td>secp256k1</td><td><code>@noble/curves</code> (D4). RFC 6979 deterministic nonce, low-S, DER over the 32-byte SHA-512-Half digest (<code>prehash: false</code>). Verify additionally enforces rippled's 8..72-byte DER bound, 32-byte digests and low-S</td><td>Web Crypto does not have secp256k1</td></tr>
@@ -487,7 +487,7 @@ export interface RpcClient { request&lt;T&gt;(method: string, params?: object): 
     <tr><th>ID</th><th>What is checked</th><th>Method</th></tr>
     <tr><td>P01</td><td>No Node APIs are used at the type level</td><td>Run <code>tsc --noEmit</code> on each package with <code>types: []</code> and <code>lib: ["ES2022","DOM"]</code> in <code>tsconfig</code>. Using <code>Buffer</code> etc. gives a type error</td></tr>
     <tr><td>P02</td><td>No traces of Node in the bundle</td><td>Fail if the output of <code>bun build --target=browser</code> contains <code>node:</code>, <code>require(</code>, <code>Buffer</code>, or <code>process.</code></td></tr>
-    <tr><td>P03</td><td>All W cases pass on Bun</td><td><code>bun test packages/*/test</code></td></tr>
+    <tr><td>P03</td><td>All W cases pass on Bun. The plain entries (crypto, address, codec, auth, name) bundle without importing <code>effect</code> (<code>portability.test.ts</code>)</td><td><code>bun test packages/*/test</code></td></tr>
     <tr><td>P04</td><td>The fixed-vector and differential cases pass on workerd</td><td>Run the runner Worker on workerd; 0 failures in the result JSON</td></tr>
     <tr><td>P05</td><td>The same cases pass in a browser (Phase 2)</td><td>Open the runner page with Playwright</td></tr>
   </table>
@@ -594,12 +594,12 @@ export interface RpcClient { request&lt;T&gt;(method: string, params?: object): 
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }, "./package.json": "./package.json" },
   "files": ["dist", "README.md", "LICENSE"],
   "publishConfig": { "access": "public" },
-  "peerDependencies": { "effect": "^4.0.2" },   // peer so that there is a single Effect instance
+  "peerDependencies": { "effect": "^4.0.2" },   // wallet and mcp (private, copied into xrp-dev's dist). xrp-dev itself lists effect under dependencies, below
   "scripts": { "build": "vp pack", "test": "vp test run" }
 }
 
-// xrp-dev: subpaths ./crypto ./address ./codec ./client. Runtime: @noble/curves and @noble/hashes (dependencies), effect (peer)
-{ "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0" },
+// xrp-dev: subpaths ./crypto ./address ./codec ./client. Runtime: @noble/curves and @noble/hashes (dependencies), effect (dependency; the plain entries do not load it)
+{ "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "effect": "^4.0.2" },
   "devDependencies": { "fast-check": "…", "workerd": "1.20260918.1", "xrpl": "^5.3.0", "ripple-*": "…" } }
 
 // xrp-dev-wallet (subpath ./passkey)
@@ -651,7 +651,7 @@ export interface RpcClient { request&lt;T&gt;(method: string, params?: object): 
     <tr><th>ID</th><th>Question</th><th>Decision</th></tr>
     <tr><td>D1</td><td>May the server side submit?</td><td>Yes, authenticated. Limited to one agent MCP tool, <code>submit</code>, which accepts only signed blobs (<a href="#ai">section 05</a>). <code>xrpl</code> stays read-only. Write the rule in <code>AGENTS.md</code> before implementing</td></tr>
     <tr><td>D2</td><td>Include the SDK and AI entry points in <code>docs/requirements.md</code>?</td><td>Include them</td></tr>
-    <tr><td>D3</td><td>Use Effect in the library?</td><td>Yes. Effect 4 (same as the agent). <code>xrpl</code> was also moved to Effect 4 on 2026-10-11 (the hono-openapi conversion is swapped via <code>loadVendor</code>)</td></tr>
+    <tr><td>D3</td><td>Use Effect in the library?</td><td>Revised: plain TypeScript for crypto, address, codec, auth and wallet; Effect 4 for the client, the passkey adapter, the MCP handlers and <code>xrp-dev/effect</code>. Originally: yes, Effect 4 everywhere (same as the agent). <code>xrpl</code> was also moved to Effect 4 on 2026-10-11 (the hono-openapi conversion is swapped via <code>loadVendor</code>)</td></tr>
     <tr><td>D4</td><td>Implement the elliptic curves in-house?</td><td>Superseded: use <code>@noble/curves</code> and <code>@noble/hashes</code>; the in-house curves and RIPEMD-160 are removed. Reason: noble is audited and targets algorithmic constant time, the in-house BigInt code was variable-time, unaudited and 2.7x to 6x slower. Original decision was in-house with noble only as a test oracle</td></tr>
     <tr><td>D5</td><td>Name</td><td><code>xrp-dev</code>. npm uses the scope <code>@xrp-dev/*</code>, and the GitHub repository name is <code>xrp-dev</code> (the stack name <code>codemode</code> is not changed)</td></tr>
     <tr><td>D6</td><td>Domain of the browser app</td><td>Not published. When publishing, a human chooses the domain</td></tr>

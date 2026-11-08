@@ -10,18 +10,19 @@ XRPL SDK for workerd, Bun, browsers and Node, published as one npm package, `xrp
 
 ## Conventions
 
-- Effect 4: I/O returns `Effect`, errors are tagged classes with a `reason`. Tests: `vp test` per package (vite-plus) and `bun test` over core, wallet and `test/` (skill snippets). Differential tests (ripple-binary-codec, xrpl.js, Wycheproof, RFC 8032) guard the codec and key code; keep them.
+- Layering (plain core, Effect adapters, the client, the wallet, dist): `docs/layering.md`. Read it before touching `src/effect/*`, `packages/wallet/src/effect.ts` or the return type of a public entry.
 - Key derivation constants (`packages/wallet/src/prf.ts`) are frozen per version: changing one changes every address derived from a passkey. Apps with their own scheme pass `derivation`; a new scheme needs a pinned vector from an independent oracle.
 - `signingRefusal` messages of `xrp-dev/wallet` stay Japanese: they are behavior, covered by tests.
 - Tests check behavior; no tests of types, wiring or mirrors of the implementation.
-- A change updates `CHANGELOG.md` under the next version heading in the same commit.
+- Review judgement rules (types, comments, tests): `CODING_STANDARDS.md`.
+- A change updates `CHANGELOG.md` under the next version heading in the same commit (the pre-commit hook checks it; `SKIP_CHANGELOG=1` when no user could notice).
 - Not independently audited as a whole: the READMEs keep their warning until a third party has reviewed the codec, address, wallet and MCP code.
 
 ## Verify
 
-`mise run check` (= `bun run typecheck && bun run test && bun run test:bun && bun run check`). `bun run check` packs the tarball, runs publint and attw, installs it into a throwaway project, imports every subpath, signs and verifies a Payment and answers MCP requests from Node and Bun.
+`mise run check` is the gate (its tasks are in `mise.toml`, CI runs the same). It also packs the tarball, runs publint and attw, installs it into a throwaway project and runs the consumer probe (`scripts/check-packages.ts`).
 
-`bun run build` builds core, wallet, mcp and x402 and assembles them (also what `prepare` runs). `bun.lock` and the hoisted linker (`bunfig.toml`) are required: `check-packages.ts` reads peers from the root `node_modules`.
+`bun run build` builds core, wallet, mcp and x402 and assembles them (also what `prepare` runs). `bun.lock` and the hoisted linker (`bunfig.toml`) are required: `check-packages.ts` reads the peers' and `effect`'s locked versions (an `effect` override pins the consumer) from the root `node_modules`.
 
 ## Release
 

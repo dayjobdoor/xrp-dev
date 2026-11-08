@@ -21,7 +21,6 @@ Snippets below create the client with one line, `const client = createRpcClient(
 `autofill` fills only the missing `Fee`, `Sequence` and `LastLedgerSequence` (current ledger + 20).
 
 ```ts
-import { Effect } from "effect"
 import { autofill, createRpcClient } from "xrp-dev/client"
 import type { TxJson } from "xrp-dev/codec"
 
@@ -49,7 +48,7 @@ const offerCreate: TxJson = {
 }
 
 for (const tx of [payment, trustSet, offerCreate]) {
-  const filled = await Effect.runPromise(autofill(client, tx))
+  const filled = await autofill(client, tx)
   if (!filled.Fee || !filled.Sequence || !filled.LastLedgerSequence) throw new Error("autofill incomplete")
   console.log("AUTOFILL_OK", filled.TransactionType, filled.Fee, filled.Sequence, filled.LastLedgerSequence)
 }
@@ -57,49 +56,29 @@ for (const tx of [payment, trustSet, offerCreate]) {
 
 ## 2. Sign, submit, confirm
 
-Signing happens where the key lives. A real wallet comes from the Passkey app (`Wallet.fromPrf`) or from the user's own local code (`Wallet.fromSeed`, seed read from their environment, never from chat). The random wallet below is only for a self-contained example.
+Signing happens where the key lives. A real wallet comes from the Passkey app (`await Wallet.fromPrf`) or from the user's own local code (`Wallet.fromSeed`, seed read from their environment, never from chat). The random wallet below is only for a self-contained example.
 
-Confirmation rules:
+`submitAndWait` submits and then does the confirming for you:
 
-- Look up `tx` by hash until `validated: true`, then read `meta.TransactionResult` (`tesSUCCESS` = done; any `tec*` code was applied but failed and still consumed the fee).
-- If the transaction is not validated and the validated ledger index is past `LastLedgerSequence`, it can never be included: it expired. Re-autofill and re-sign with a fresh `LastLedgerSequence`.
-- Read the ledger index **before** looking up the transaction, so a transaction validated in between is not reported as expired.
+- It looks `tx` up by hash until `validated: true`, then reads `meta.TransactionResult` into `transaction_result` (`tesSUCCESS` = done; any `tec*` code was applied but failed and still consumed the fee, so it resolves: check the field).
+- It rejects with `ClientError`: `rejected` (`tem`, `tef`, `tel`: the node refuses it for good), `expired` (the validated ledger is past `LastLedgerSequence` and the transaction is not in it: re-autofill and re-sign with a fresh `LastLedgerSequence`), `timeout` or `aborted`.
+- The ledger index is read **before** the lookup, so a transaction validated in between is not reported as expired.
 
 ```ts
-import { Effect } from "effect"
+import { autofill, createRpcClient, submitAndWait } from "xrp-dev/client"
 import { Wallet } from "xrp-dev/wallet"
-import { autofill, createRpcClient, submit, type RpcClient } from "xrp-dev/client"
 
 const client = createRpcClient({ url: "https://s.altnet.rippletest.net:51234/" })
 
-const confirm = (client: RpcClient, hash: string, lastLedger: number) =>
-  Effect.gen(function* () {
-    for (let i = 0; i < 30; i++) {
-      const { ledger_index } = yield* client.request<{ ledger_index: number }>("ledger", { ledger_index: "validated" })
-      const found = yield* client
-        .request<{ validated?: boolean; meta?: { TransactionResult?: string } }>("tx", { transaction: hash })
-        .pipe(Effect.catch(() => Effect.succeed(undefined))) // txnNotFound until it is in a ledger
-      if (found?.validated) return found.meta?.TransactionResult ?? "unknown"
-      if (ledger_index > lastLedger) return "expired"
-      yield* Effect.sleep(1000)
-    }
-    return "pending"
-  })
-
-const program = Effect.gen(function* () {
-  const wallet = yield* Wallet.fromEntropy(crypto.getRandomValues(new Uint8Array(16)))
-  const tx = yield* autofill(client, {
-    TransactionType: "Payment",
-    Account: wallet.address,
-    Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
-    Amount: "1000000",
-  })
-  const { tx_blob, hash } = yield* wallet.sign(tx)
-  const sent = yield* submit(client, tx_blob)
-  console.log("SUBMITTED", sent.engine_result)
-  const result = yield* confirm(client, hash, Number(tx.LastLedgerSequence))
-  console.log("CONFIRMED", result)
+const wallet = Wallet.fromEntropy(crypto.getRandomValues(new Uint8Array(16)))
+const tx = await autofill(client, {
+  TransactionType: "Payment",
+  Account: wallet.address,
+  Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+  Amount: "1000000",
 })
-
-await Effect.runPromise(program)
+const { tx_blob } = wallet.sign(tx)
+const result = await submitAndWait(client, tx_blob)
+console.log("SUBMITTED", result.engine_result)
+console.log("CONFIRMED", result.transaction_result)
 ```

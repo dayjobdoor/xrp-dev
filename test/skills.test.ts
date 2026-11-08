@@ -11,8 +11,7 @@ const skills = readdirSync(skillsDir, { withFileTypes: true }).filter((d) => d.i
 // Convention: network snippets create their client with this one line; the test swaps in a fake.
 const CLIENT_LINE = /^const client = createRpcClient\(\{ url: .*\}\)$/m;
 
-const fakeClient = `import { Effect } from "effect"
-import type { RpcClient } from "xrp-dev/client"
+const fakeClient = `import type { RpcClient } from "xrp-dev/client"
 
 const results: Record<string, unknown> = {
   fee: { drops: { open_ledger_fee: "10" }, ledger_current_index: 1000 },
@@ -24,8 +23,10 @@ const results: Record<string, unknown> = {
 }
 
 export const fakeClient: RpcClient = {
-  request: <T>(method: string) =>
-    method in results ? Effect.succeed(results[method] as T) : Effect.die(new Error("unexpected rpc " + method)),
+  request: async <T>(method: string) => {
+    if (!(method in results)) throw new Error("unexpected rpc " + method)
+    return results[method] as T
+  },
 }
 `;
 
@@ -79,6 +80,8 @@ describe("skills", () => {
       blocks.forEach((src, i) => {
         it(`block ${i + 1} typechecks and runs`, async () => {
           const code = src.replace(CLIENT_LINE, 'import { fakeClient as client } from "./fake-client"');
+          // A snippet that builds a client must have had that line replaced, or it would call the real network.
+          if (src.includes("createRpcClient(")) expect(code).not.toBe(src);
           const dir = join(tmp, `${name}-${i}`);
           mkdirSync(dir);
           const file = join(dir, "snippet.ts");
@@ -86,7 +89,7 @@ describe("skills", () => {
           writeFileSync(file, code.replace('"./fake-client"', '"../fake-client"'));
           writeFileSync(
             join(dir, "tsconfig.json"),
-            JSON.stringify({ extends: join(root, "packages/tsconfig.base.json"), compilerOptions: { types: [], noEmit: true }, files: ["snippet.ts"] }),
+            JSON.stringify({ extends: join(root, "packages/tsconfig.base.json"), compilerOptions: { types: [], noEmit: true, noUnusedLocals: false, noUnusedParameters: false }, files: ["snippet.ts"] }),
           );
           const tsc = await run(["bunx", "tsc", "-p", "tsconfig.json"], dir);
           expect(tsc.out + tsc.err).toBe("");
