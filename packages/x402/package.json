@@ -13,7 +13,7 @@
     "hono": "^4.0.0"
   },
   "devDependencies": {
-    "hono": "4.13.13",
+    "hono": "4.13.17",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

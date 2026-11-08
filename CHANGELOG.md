@@ -15,6 +15,7 @@
 - **Added (`xrp-dev/x402`)**: `InvoiceStore` may implement `claim(id, { ttlSeconds })` (atomic, for example Redis `SET NX EX`) and `release(id)`; the gate uses `claim` so two server processes cannot both deliver one payment. A store shared by several processes must implement it. The `xrp-dev` README has a new x402 section (the facilitator is the trust boundary for ledger checks, `claim` for shared stores, `cors()` first), and the same rules are in the JSDoc of `requirePayment`.
 - **Fix (`xrp-dev/mcp`)**: a JSON-RPC batch is limited to 20 messages (a longer one gets one `-32600` reply) and runs at most 4 members at a time; before, 500 `account_info` calls in one batch reached the node as 500 concurrent requests.
 - **Release**: `scripts/check-packages.ts` records the SHA-256 of each tarball right after packing, fails if publint, attw or the consumer install changed one, and writes `SHA256SUMS` next to them; the publish job checks it after download and before `npm publish`. `docs/design-document.html` no longer calls the mcp bin Bun-only and names the real build scripts.
+- **Dependencies**: `effect` resolves to 4.1.2 (was 4.0.5; the range `^4.0.2` is unchanged), `@modelcontextprotocol/sdk` 1.32.2, `hono` 4.13.17, `workerd` 1.20261108.1, `@types/node` 26.6.6; the lockfile moves `body-parser` to 2.4.0 and `fast-uri` to 3.1.9, which clears the five advisories `bun audit` reported (they came in through the private mcp package, not the published one).
 
 ## 0.1.0-alpha.5 (2026-11-08)
 

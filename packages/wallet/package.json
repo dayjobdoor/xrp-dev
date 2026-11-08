@@ -32,7 +32,7 @@
     "xrpl-connect": { "optional": true }
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "@xrplf/secret-numbers": "^3.0.0",
     "effect": "^4.1.2",
     "fast-check": "^4.10.2",
