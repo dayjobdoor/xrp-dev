@@ -58,6 +58,7 @@ export const NAME_MESSAGES: Record<NameReason | LoginFailure, string> = {
   check_failed: "Could not check the name.",
   invalid_request: "A signature (or proof) is required.",
   challenge_invalid: "The challenge is invalid or expired.",
+  challenge_used: "The challenge was already used.",
   signature_invalid: "The signature is not valid.",
 };
 

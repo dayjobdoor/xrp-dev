@@ -201,36 +201,48 @@ describe("availability", () => {
 describe("loginWithName", () => {
   const SECRET = "test-secret";
   const APP = "TEST APP";
+  const ORIGIN = "https://app.example";
   const hex = (text: string) => Array.from(new TextEncoder().encode(text), (b) => b.toString(16).padStart(2, "0")).join("");
   const A = XrplWallet.fromSeed("snoPBrXtMeMyMHUVTgbuqAfg1SUTb");
   const B = XrplWallet.fromSeed("sEdSJHS4oiAdz7w2X2ni1gFiqtbJHqE");
   const body = async (wallet: XrplWallet, name?: unknown, now?: number) => {
-    const challenge = await createChallenge(SECRET, { app: APP, ...(now !== undefined && { now }) });
-    return { challenge, signature: keypairSign(hex(loginMessage(APP, challenge)), wallet.privateKey), publicKey: wallet.publicKey, ...(name !== undefined && { name }) };
+    const challenge = await createChallenge(SECRET, { app: APP, origin: ORIGIN, ...(now !== undefined && { now }) });
+    return { challenge, signature: keypairSign(hex(loginMessage({ app: APP, origin: ORIGIN, challenge, ...(typeof name === "string" && { name }) })), wallet.privateKey), publicKey: wallet.publicKey, ...(name !== undefined && { name }) };
   };
 
   it("verifies the signature, then binds the name on first login", async () => {
     const { store } = makeStore();
-    expect(await loginWithName(SECRET, store, { app: APP, body: await body(A, "  Dave_1 ") })).toMatchObject({ address: A.address, created: true, user: { account: A.address, name: "dave_1" } });
-    expect(await loginWithName(SECRET, store, { app: APP, body: await body(A, "!!") })).toMatchObject({ address: A.address, created: false, user: { name: "dave_1" } });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: await body(A, "  Dave_1 ") })).toMatchObject({ address: A.address, created: true, user: { account: A.address, name: "dave_1" } });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: await body(A, "!!") })).toMatchObject({ address: A.address, created: false, user: { name: "dave_1" } });
   });
 
   it("asks a new address for a name, and refuses a taken one", async () => {
     const { store } = makeStore();
-    expect(await loginWithName(SECRET, store, { app: APP, body: await body(A) })).toMatchObject({ code: "name_required", status: 428 });
-    await loginWithName(SECRET, store, { app: APP, body: await body(A, "dave") });
-    expect(await loginWithName(SECRET, store, { app: APP, body: await body(B, "DAVE") })).toMatchObject({ code: "name_taken", status: 409 });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: await body(A) })).toMatchObject({ code: "name_required", status: 428 });
+    await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: await body(A, "dave") });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: await body(B, "DAVE") })).toMatchObject({ code: "name_taken", status: 409 });
   });
 
   it("registers nothing for a bad signature, a stale challenge or a malformed body", async () => {
     const { store, rows } = makeStore();
     const good = await body(A, "dave");
-    expect(await loginWithName(SECRET, store, { app: APP, body: { ...good, signature: "00" + good.signature.slice(2) } })).toMatchObject({ code: "signature_invalid", status: 401 });
-    expect(await loginWithName(SECRET, store, { app: APP, body: await body(A, "dave", Date.now() - 10 * 60_000) })).toMatchObject({ code: "challenge_invalid", status: 401 });
-    expect(await loginWithName(SECRET, store, { app: APP, body: { challenge: good.challenge } })).toMatchObject({ code: "invalid_request", status: 400 });
-    expect(await loginWithName(SECRET, store, { app: APP, body: { ...good, name: 5 } })).toMatchObject({ code: "invalid_request", status: 400 });
-    expect(await loginWithName(SECRET, store, { app: APP, body: null })).toMatchObject({ code: "invalid_request" });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: { ...good, signature: "00" + good.signature.slice(2) } })).toMatchObject({ code: "signature_invalid", status: 401 });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: await body(A, "dave", Date.now() - 10 * 60_000) })).toMatchObject({ code: "challenge_invalid", status: 401 });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: { challenge: good.challenge } })).toMatchObject({ code: "invalid_request", status: 400 });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: { ...good, name: 5 } })).toMatchObject({ code: "invalid_request", status: 400 });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: null })).toMatchObject({ code: "invalid_request" });
     expect(rows).toEqual([]);
+  });
+
+  it("registers only the name the wallet signed, and spends a challenge once when given the hook", async () => {
+    const { store, rows } = makeStore();
+    const good = await body(A, "dave");
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, body: { ...good, name: "mallory" } })).toMatchObject({ code: "signature_invalid", status: 401 });
+    expect(rows).toEqual([]);
+    const seen = new Set<string>();
+    const consumeChallenge = (nonce: string) => !seen.has(nonce) && (seen.add(nonce), true);
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, consumeChallenge, body: good })).toMatchObject({ created: true, user: { name: "dave" } });
+    expect(await loginWithName(SECRET, store, { app: APP, origin: ORIGIN, consumeChallenge, body: good })).toMatchObject({ code: "challenge_used", status: 401 });
   });
 });
 

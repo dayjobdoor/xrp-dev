@@ -35,7 +35,7 @@ bun add xrp-dev   # or: npm i xrp-dev
 | `xrp-dev/client` | `Client` (xrpl.js style: `request`, `autofill`, `submit`, `submitAndWait`), or the functions `createRpcClient`, `createWsClient`, `autofill`, `submit`, `submitAndWait`; `NETWORK_PRESETS` |
 | `xrp-dev/effect` | the alpha.4 API: fallible and I/O functions return `Effect`s that fail with the same error classes, pure helpers (`bytesToHex`, `ripemd160`, `isValid*Key`, ...) return values. Subpaths: `/effect/crypto`, `/effect/address`, `/effect/codec`, `/effect/wallet`, `/effect/client` |
 | `xrp-dev/xahau` | `XAHAU_DEFINITIONS`: codec tables for Xahau, pass as `defs`. Types for the Xahau-only transactions (`Remit`, `URITokenMint`, `SetHook`, `Import`, ..., union `XahauTransaction`); each is assignable to `TxJson` |
-| `xrp-dev/auth` | wallet sign-in: `createChallenge`, `verifyLogin` (server), `login(adapter, { app })` (browser) |
+| `xrp-dev/auth` | wallet sign-in: `createChallenge`, `verifyLogin` (server), `login(adapter, { app })` (browser); see [Wallet sign-in](#wallet-sign-in-xrp-devauth) |
 | `xrp-dev/name` | one unique name per account: rules, client checks (`createNameChecker`, `registerWithName`). Browser-safe, no `effect` |
 | `xrp-dev/name/server` | the server half: store helpers (`registerPasskeyAccount`, `loginWithName`), availability handler. Re-exports `xrp-dev/name` |
 | `xrp-dev/wallet` | keys and signing: plain functions that throw `WalletError` (`Wallet.fromPrf` is a Promise). Not loaded by the entries above |
@@ -72,6 +72,32 @@ await client.disconnect();
 
 Everything in `crypto`, `address` and `codec` is synchronous: a result is returned, and a failure throws the entry's error class (`AddressError`, `CodecError`, `CryptoError`). Only the client is asynchronous: its methods return Promises that reject with `ClientError`. The errors are plain `Error` subclasses with `_tag` and `reason`. `crypto`, `address`, `codec`, `auth` and `wallet` import no `effect`, so a bundle of those subpaths carries none of it; the client, the root `xrp-dev` entry (which re-exports the client) and `xrp-dev/name/server` do. For Effects, import from `xrp-dev/effect/...` instead; the functions and errors are the same. `PasskeyAdapter` and `xrp-dev/mcp` accept either client (`toEffectClient` from `xrp-dev/effect/client` converts one explicitly). 
 
+## Wallet sign-in (`xrp-dev/auth`)
+
+The server issues a challenge, the wallet signs a text that names it, the server checks both. A challenge is `<unix ms>.<random 128-bit nonce>.<HMAC>`; the HMAC covers `app`, `origin`, the time and the nonce, and the signed text names the app, the origin and, when the app passes one, the account `name` (so a relayed signature cannot register a different permanent name). `origin` is the web origin the page is served from (`https://app.example`): configure it, do not read it from the request. It is required on the server; the browser `login()` passes `location.origin` unless you give `origin`. A challenge from another app or origin, one older than 5 minutes and one in the format before the nonce fail with `challenge_invalid`.
+
+**Replay:** without `consumeChallenge` the server is stateless and a captured signed login can be replayed until its challenge expires (5 minutes). To make a challenge single-use, pass `consumeChallenge(nonce, expiresAtMs)`; it is called once per correctly signed login and must return `false` (sync or async) if it has seen the nonce, which makes `verifyLogin` answer `challenge_used`. It must be atomic: with several servers use a database insert that fails on a duplicate, and delete rows after `expiresAtMs`.
+
+```ts
+import { createChallenge, verifyLogin } from "xrp-dev/auth";
+
+const ORIGIN = "https://app.example";
+const spent = new Map<string, number>(); // nonce -> expiresAtMs; a DB table with a UNIQUE nonce (insert-or-fail) works across servers
+const consumeChallenge = (nonce: string, expiresAtMs: number) => {
+  for (const [n, at] of spent) if (at < Date.now()) spent.delete(n);
+  return spent.has(nonce) ? false : (spent.set(nonce, expiresAtMs), true);
+};
+
+app.get("/api/auth/challenge", async (c) => c.json({ challenge: await createChallenge(c.env.JWT_SECRET, { app: APP, origin: ORIGIN }) }));
+app.post("/api/auth/login", async (c) => {
+  const body = await c.req.json();
+  const r = await verifyLogin(c.env.JWT_SECRET, { app: APP, origin: ORIGIN, ...body, consumeChallenge }); // `{ address }` or `{ code }`
+  // set the session for r.address
+});
+```
+
+Failures: `invalid_request` (no credential, or `proof` over 4096, `signature` over 160, `publicKey` over 66, `name` over 128 characters), `challenge_invalid`, `signature_invalid`, `challenge_used`.
+
 ## Unique names (`xrp-dev/name`)
 
 Every app that signs up with a passkey binds one unique, immutable name to the account when it is created. The rules, the race-safe server flow and the client checks live here once; the app supplies a three-method store over its own table and the copy for the error codes. `xrp-dev/name` (rules and client, plain `Error`s, imports no `effect`) is what a browser bundle takes; `xrp-dev/name/server` adds the Effect-based `validateName` and the store helpers.
@@ -98,7 +124,7 @@ const store = (db: DrizzleD1Database): NameStore<User> => ({
 app
   .get("/username", nameAvailabilityHandler<Context<Env>>((c) => store(c.get("db")), { reserved: ["gallery"] }))
   .post("/login", async (c) => {
-    const r = await loginWithName(c.env.JWT_SECRET, store(c.get("db")), { app: APP, body: await c.req.json().catch(() => null), reserved: ["gallery"] });
+    const r = await loginWithName(c.env.JWT_SECRET, store(c.get("db")), { app: APP, origin: ORIGIN, body: await c.req.json().catch(() => null), reserved: ["gallery"] });
     if ("code" in r) return c.json({ code: r.code, reason: r.reason, message: r.message }, r.status);
     // set the session for r.address (r.user.name, r.created) as before
     return c.json({ address: r.address, name: r.user.name });
@@ -112,7 +138,7 @@ app
 | `RESERVED_NAMES`, `NAME_MIN`, `NAME_MAX` | the default rules: auth/ops words, route-like words, `vocab` |
 | `registerPasskeyAccount(store, account, name, opts?)` | registered account: its row, `created: false`, `name` ignored. New account: needs a valid free `name`. `{ user, created }` or a failure |
 | `claimName(store, account, name, opts?)` | the insert half: a UNIQUE rejection becomes `name_taken`, or the existing row when this account was just registered |
-| `loginWithName(secret, store, { app, body, ...opts })` | `verifyLogin` + `registerPasskeyAccount` on a `POST /login` body; `{ address, user, created }` or `{ code, status, message, reason? }` |
+| `loginWithName(secret, store, { app, origin, body, consumeChallenge?, ...opts })` | `verifyLogin` + `registerPasskeyAccount` on a `POST /login` body; `{ address, user, created }` or `{ code, status, message, reason? }` |
 | `checkNameAvailable(store, raw, opts?)`, `nameAvailabilityHandler(store, opts?)` | `{ name, available }`; the handler serves `GET ?name=` (rate-limit it: it is unauthenticated) |
 | `isUniqueViolation(error)` | SQLite/D1, Postgres, MySQL; override with `opts.isConflict` |
 | `checkNameAvailability(raw, { base?, path?, fetch?, signal? })` | browser: local rules, then `GET /api/auth/username?name=`. For a live check, not for the click |

@@ -7,16 +7,34 @@ import { bytesToHex, hexToBytes } from "./crypto/hex.js";
 import * as secp256k1 from "./crypto/secp256k1.js";
 import { AddressError, CodecError, CryptoError } from "./errors.js";
 
-// Sign-in for apps whose account is a wallet: the server issues a stateless challenge, the wallet signs it.
+// Sign-in for apps whose account is a wallet: the server issues a signed challenge, the wallet signs it.
+//
+// A challenge is `<unix ms>.<hex nonce>.<hex hmac-sha256>`. The HMAC covers the app, the web origin, the time and the
+// nonce, so a challenge never works for another service or another origin, and no two challenges are equal. The wallet
+// signs a message that names app, origin and (when given) the account name. Without `consumeChallenge` a signed login
+// can be replayed within `CHALLENGE_TTL_MS`.
 
 /** How long a challenge stays valid. */
 export const CHALLENGE_TTL_MS = 300_000;
 const ED25519_PREFIX = 0xed;
+const NONCE_BYTES = 16;
+// Upper bounds for what `verifyLogin` accepts (hex characters for the credential fields), checked before any crypto.
+const MAX_CHALLENGE = 128;
+const MAX_SIGNATURE = 160; // ed25519: 128, DER secp256k1: at most 144
+const MAX_PUBLIC_KEY = 66;
+const MAX_PROOF = 4096; // one signature over a small AccountSet; a 32-signer multisig is about 10 000
+const MAX_NAME = 128;
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
-const hmac = async (secret: string, app: string, issuedAt: string) => {
+// Not a malformed request but a caller bug: without an origin the challenge would not be bound to one.
+const requireOrigin = (origin: string) => {
+  if (typeof origin !== "string" || origin === "") throw new TypeError("origin is required, e.g. https://app.example");
+};
+
+const hmac = async (secret: string, app: string, origin: string, issuedAt: string, nonce: string) => {
   const key = await crypto.subtle.importKey("raw", utf8(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return bytesToHex(new Uint8Array(await crypto.subtle.sign("HMAC", key, utf8(`${app}/login/v1:${issuedAt}`))));
+  const input = JSON.stringify(["xrp-dev/login/v2", app, origin, issuedAt, nonce]);
+  return bytesToHex(new Uint8Array(await crypto.subtle.sign("HMAC", key, utf8(input))));
 };
 
 /** XOR fold: the time does not depend on where two equal-length strings differ. */
@@ -27,22 +45,48 @@ const sameHex = (a: string, b: string) => {
   return diff === 0;
 };
 
-/** `<unix ms>.<hex hmac-sha256>`. Bound to `app`, so a challenge from one service never logs in to another. */
-export const createChallenge = async (secret: string, opts: { app: string; now?: number }): Promise<string> => {
+/**
+ * `<unix ms>.<hex nonce>.<hex hmac-sha256>`: 128 random bits make every challenge unique. Bound to `app` and `origin`
+ * (the web origin the page is served from, e.g. `https://app.example`), so a challenge from one service or origin never logs
+ * in to another.
+ */
+export const createChallenge = async (secret: string, opts: { app: string; origin: string; now?: number }): Promise<string> => {
+  requireOrigin(opts.origin);
   const issuedAt = String(opts.now ?? Date.now());
-  return `${issuedAt}.${await hmac(secret, opts.app, issuedAt)}`;
+  const nonce = bytesToHex(crypto.getRandomValues(new Uint8Array(NONCE_BYTES)));
+  return `${issuedAt}.${nonce}.${await hmac(secret, opts.app, opts.origin, issuedAt, nonce)}`;
 };
 
-export const isFreshChallenge = async (secret: string, challenge: string, opts: { app: string; now?: number }): Promise<boolean> => {
-  const [issuedAt, mac, ...rest] = challenge.split(".");
-  if (!issuedAt || !mac || rest.length > 0) return false;
+/** The nonce and the end of validity of a challenge this server issued for `app` and `origin` and that has not expired; else `undefined`. */
+const openChallenge = async (
+  secret: string,
+  challenge: string,
+  opts: { app: string; origin: string; now?: number },
+): Promise<{ nonce: string; expiresAt: number } | undefined> => {
+  requireOrigin(opts.origin);
+  if (typeof challenge !== "string" || challenge.length > MAX_CHALLENGE) return undefined;
+  const parts = challenge.split(".");
+  if (parts.length !== 3) return undefined; // includes the old `<unix ms>.<mac>` format
+  const [issuedAt, nonce, mac] = parts as [string, string, string];
+  if (!/^\d{1,16}$/.test(issuedAt) || !/^[0-9A-F]{32}$/.test(nonce)) return undefined;
   const age = (opts.now ?? Date.now()) - Number(issuedAt);
-  if (!Number.isFinite(age) || age < 0 || age > CHALLENGE_TTL_MS) return false;
-  return sameHex(mac, await hmac(secret, opts.app, issuedAt));
+  if (age < 0 || age > CHALLENGE_TTL_MS) return undefined;
+  if (!sameHex(mac, await hmac(secret, opts.app, opts.origin, issuedAt, nonce))) return undefined;
+  return { nonce, expiresAt: Number(issuedAt) + CHALLENGE_TTL_MS };
 };
 
-/** Text the wallet signs. The client signs exactly this string and the server rebuilds it. */
-export const loginMessage = (app: string, challenge: string): string => `${app} login\n${challenge}`;
+export const isFreshChallenge = async (secret: string, challenge: string, opts: { app: string; origin: string; now?: number }): Promise<boolean> =>
+  (await openChallenge(secret, challenge, opts)) !== undefined;
+
+/** Scope of a signed login: what the wallet's signature is for. */
+export type LoginScope = { app: string; origin: string; challenge: string; name?: string };
+
+/**
+ * Text the wallet signs. The client signs exactly this string and the server rebuilds it. It names the app, the origin
+ * and, when the app passes one, the account name, so a relayed signature cannot register a different permanent name.
+ */
+export const loginMessage = (p: LoginScope): string =>
+  `${p.app} login\nOrigin: ${p.origin}\n${p.name !== undefined ? `Name: ${p.name}\n` : ""}Challenge: ${p.challenge}`;
 
 // A malformed key, signature or blob is "not valid", not an exception; anything else thrown is a bug and propagates.
 const orUndefined = <T>(f: () => T): T | undefined => {
@@ -88,7 +132,7 @@ export type LoginProofTx = {
   Memos: { Memo: { MemoType: string; MemoData: string } }[];
 };
 
-export const loginProofTx = (p: { app: string; challenge: string; account: string }): LoginProofTx => ({
+export const loginProofTx = (p: LoginScope & { account: string }): LoginProofTx => ({
   TransactionType: "AccountSet",
   Account: p.account,
   Sequence: 0,
@@ -97,11 +141,15 @@ export const loginProofTx = (p: { app: string; challenge: string; account: strin
   // that is near or past expiry, and xrpl-connect rejects a raise of more than 50 ledgers, so use the maximum: it never
   // expires. Being present also lets `autofill` skip every network call
   LastLedgerSequence: 4294967295,
-  Memos: [{ Memo: { MemoType: hex("login"), MemoData: hex(loginMessage(p.app, p.challenge)) } }],
+  Memos: [{ Memo: { MemoType: hex("login"), MemoData: hex(loginMessage(p)) } }],
 });
 
-/** The signer's address when `blob` is a valid, master-key-signed `loginProofTx` for this challenge; else `undefined`. */
-export const verifyProofTx = (blob: string, p: { app: string; challenge: string }): string | undefined =>
+/**
+ * The signer's address when `blob` is a valid, master-key-signed `loginProofTx` for this challenge; else `undefined`.
+ * The cheap checks come first (fields, no `Signers`, the one `SigningPubKey` is the account's own key); the signature, the
+ * only expensive part, is verified last, so a multisigned blob with many signers costs no more than garbage.
+ */
+export const verifyProofTx = (blob: string, p: LoginScope): string | undefined =>
   orUndefined(() => {
     const tx = decode(blob);
     const memos = tx.Memos;
@@ -112,30 +160,69 @@ export const verifyProofTx = (blob: string, p: { app: string; challenge: string 
       tx.Fee === "0" &&
       typeof tx.Account === "string" &&
       typeof memo?.MemoData === "string" &&
-      memo.MemoData.toUpperCase() === hex(loginMessage(p.app, p.challenge)) &&
-      verifyTransaction(blob) &&
-      signerMatchesAccount(blob);
+      memo.MemoData.toUpperCase() === hex(loginMessage(p)) &&
+      tx.Signers === undefined &&
+      signerMatchesAccount(blob) &&
+      verifyTransaction(blob);
     return ok ? (tx.Account as string) : undefined;
   });
 
-export type LoginFailure = "invalid_request" | "challenge_invalid" | "signature_invalid";
+/** `challenge_used`: `consumeChallenge` said the challenge was already spent. */
+export type LoginFailure = "invalid_request" | "challenge_invalid" | "challenge_used" | "signature_invalid";
 
 /**
  * Server half of `login`: checks the challenge and the signature (or proof transaction) of a `POST /api/auth/login`
  * body. The address is what the caller then puts into its session.
+ *
+ * `origin` is the app's own web origin from its configuration (`https://app.example`), never a value from the request.
+ * `name` is the account name from the body, if any; the wallet signed it, so it cannot be swapped.
+ *
+ * A signed login can be replayed until the challenge expires, unless `consumeChallenge` is given. It is called once per
+ * valid signed login with the challenge's nonce and its expiry (ms, when the entry may be dropped) and must return `false`
+ * if that nonce was seen before, which makes `verifyLogin` answer `challenge_used`. It has to be atomic, e.g. an insert
+ * that fails on a duplicate:
+ *
+ * ```ts
+ * const seen = new Map<string, number>(); // a database `INSERT … ON CONFLICT DO NOTHING` with a unique nonce works across servers
+ * const consumeChallenge = (nonce: string, expiresAtMs: number) => {
+ *   for (const [n, at] of seen) if (at < Date.now()) seen.delete(n);
+ *   if (seen.has(nonce)) return false;
+ *   seen.set(nonce, expiresAtMs);
+ *   return true;
+ * };
+ * await verifyLogin(secret, { app, origin, challenge, signature, publicKey, consumeChallenge });
+ * ```
  */
 export const verifyLogin = async (
   secret: string,
-  p: { app: string; challenge: string; signature?: string; publicKey?: string; proof?: string },
+  p: {
+    app: string;
+    origin: string;
+    challenge: string;
+    name?: string;
+    signature?: string;
+    publicKey?: string;
+    proof?: string;
+    consumeChallenge?: (nonce: string, expiresAtMs: number) => boolean | Promise<boolean>;
+  },
 ): Promise<{ address: string } | { code: LoginFailure }> => {
   const credential = p.proof !== undefined || (p.signature !== undefined && p.publicKey !== undefined);
   if (!credential) return { code: "invalid_request" };
-  if (!(await isFreshChallenge(secret, p.challenge, { app: p.app }))) return { code: "challenge_invalid" };
+  const tooLong = (value: string | undefined, max: number) => value !== undefined && (typeof value !== "string" || value.length > max);
+  if (tooLong(p.proof, MAX_PROOF) || tooLong(p.signature, MAX_SIGNATURE) || tooLong(p.publicKey, MAX_PUBLIC_KEY) || tooLong(p.name, MAX_NAME)) {
+    return { code: "invalid_request" };
+  }
+  const opened = await openChallenge(secret, p.challenge, p);
+  if (!opened) return { code: "challenge_invalid" };
+  const scope: LoginScope = { app: p.app, origin: p.origin, challenge: p.challenge, ...(p.name !== undefined && { name: p.name }) };
   const address =
     p.proof !== undefined
-      ? verifyProofTx(p.proof, p)
-      : verifyMessage({ message: loginMessage(p.app, p.challenge), signature: p.signature!, publicKey: p.publicKey! });
-  return address ? { address } : { code: "signature_invalid" };
+      ? verifyProofTx(p.proof, scope)
+      : verifyMessage({ message: loginMessage(scope), signature: p.signature!, publicKey: p.publicKey! });
+  if (!address) return { code: "signature_invalid" };
+  // Only after the signature: an unsigned request must not be able to spend someone else's challenge.
+  if (p.consumeChallenge && !(await p.consumeChallenge(opened.nonce, opened.expiresAt))) return { code: "challenge_used" };
+  return { address };
 };
 
 /** A non-2xx answer of the app's auth API: `message` as sent, plus the HTTP `status` and the body's `code` (e.g. `name_taken`) and `reason`. */
@@ -153,11 +240,12 @@ export class LoginError extends Error {
 
 /**
  * Browser half. Fetches a challenge, has the connected wallet sign it (a message when the wallet can, else the proof
- * transaction) and posts it. The session cookie comes back on the response. A non-2xx answer throws a `LoginError` with its `message`.
+ * transaction) and posts it. `origin` defaults to `location.origin` and must be the one the server was configured with.
+ * `name`, when given, is part of the signed text. The session cookie comes back on the response. A non-2xx answer throws a `LoginError` with its `message`.
  */
 export const login = async (
   adapter: WalletAdapter,
-  p: { app: string; base?: string; name?: string; fetch?: typeof fetch },
+  p: { app: string; origin?: string; base?: string; name?: string; fetch?: typeof fetch },
 ): Promise<{ address: string; name?: string }> => {
   const call = p.fetch ?? fetch;
   const base = p.base ?? "";
@@ -166,8 +254,12 @@ export const login = async (
     if (!res.ok) throw new LoginError(body.message ?? `HTTP ${res.status}`, res.status, body.code, body.reason);
     return body as T;
   };
-  const { challenge, message } = await read<{ challenge: string; message: string }>(await call(`${base}/api/auth/challenge`, { credentials: "include" }));
-  if (message !== loginMessage(p.app, challenge)) throw new Error("the server's login message is not this app's");
+  const origin = p.origin ?? globalThis.location?.origin;
+  if (!origin) throw new Error("origin is required outside a browser, e.g. https://app.example");
+  // The message is built here, not taken from the server: the wallet only ever signs this app, this origin and this name.
+  const { challenge } = await read<{ challenge: string }>(await call(`${base}/api/auth/challenge`, { credentials: "include" }));
+  const scope: LoginScope = { app: p.app, origin, challenge, ...(p.name !== undefined && { name: p.name }) };
+  const message = loginMessage(scope);
 
   let credential: Record<string, string>;
   if (adapter.capabilities?.signMessage !== false) {
@@ -176,7 +268,7 @@ export const login = async (
   } else {
     const account = await adapter.getAccount();
     if (!account) throw new Error("the wallet is not connected");
-    const signed = await adapter.sign(loginProofTx({ app: p.app, challenge, account: account.address }));
+    const signed = await adapter.sign(loginProofTx({ ...scope, account: account.address }));
     if (!signed.tx_blob) throw new Error("the wallet did not return a signed transaction");
     credential = { proof: signed.tx_blob };
   }

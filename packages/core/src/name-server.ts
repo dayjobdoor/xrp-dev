@@ -109,20 +109,30 @@ export type LoginFailureResult = { code: LoginFailure; status: 400 | 401; messag
 
 /**
  * `POST /login` in one call: `verifyLogin` (challenge + signature or proof) then `registerPasskeyAccount`. `body` is the
- * parsed JSON as it came in (`{ challenge, signature?, publicKey?, proof?, name? }`). On success the app sets its session
+ * parsed JSON as it came in (`{ challenge, signature?, publicKey?, proof?, name? }`). `origin` is the app's own web origin
+ * and `consumeChallenge` the optional single-use hook, both as for `verifyLogin`; the `name` the wallet signed is the one registered. On success the app sets its session
  * for `address`; on failure answer `{ code, reason, message }` with `status`.
  */
 export const loginWithName = async <T extends NameRecord>(
   secret: string,
   store: NameStore<T>,
-  p: { app: string; body: unknown } & ServerNameOptions,
+  p: { app: string; origin: string; body: unknown; consumeChallenge?: Parameters<typeof verifyLogin>[1]["consumeChallenge"] } & ServerNameOptions,
 ): Promise<{ address: string; user: T; created: boolean } | NameFailure | LoginFailureResult> => {
   const reject = (code: LoginFailure, status: 400 | 401): LoginFailureResult => ({ code, status, message: p.messages?.[code] ?? NAME_MESSAGES[code] });
   const b = (typeof p.body === "object" && p.body !== null ? p.body : {}) as Record<string, unknown>;
   const text = (key: string) => (typeof b[key] === "string" ? (b[key] as string) : undefined);
   const challenge = text("challenge");
   if (challenge === undefined || (b.name !== undefined && typeof b.name !== "string")) return reject("invalid_request", 400);
-  const verified = await verifyLogin(secret, { app: p.app, challenge, signature: text("signature"), publicKey: text("publicKey"), proof: text("proof") } as Parameters<typeof verifyLogin>[1]);
+  const verified = await verifyLogin(secret, {
+    app: p.app,
+    origin: p.origin,
+    challenge,
+    name: text("name"),
+    signature: text("signature"),
+    publicKey: text("publicKey"),
+    proof: text("proof"),
+    consumeChallenge: p.consumeChallenge,
+  } as Parameters<typeof verifyLogin>[1]);
   if ("code" in verified) return reject(verified.code, verified.code === "invalid_request" ? 400 : 401);
   const registered = await registerPasskeyAccount(store, verified.address, b.name, p);
   return "code" in registered ? registered : { address: verified.address, ...registered };
