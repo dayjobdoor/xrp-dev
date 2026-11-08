@@ -42,13 +42,13 @@ With Bun: `"command": "bunx", "args": ["--bun", "--package", "xrp-dev", "xrp-dev
 ## Install as a library
 
 ```sh
-bun add xrp-dev effect   # or: npm i xrp-dev effect
+bun add xrp-dev effect@^4   # or: npm i xrp-dev effect@^4
 ```
 
-Peer dependency: `effect` `^4.0.2`. `xrp-dev/mcp` exports the tool registry and a transport-agnostic JSON-RPC handler (batches included; an array in gives an array of replies out).
+`effect` (`^4.0.2`) is a dependency of `xrp-dev`; list it in your own package too, since a tool's `handler` returns an `Effect` and `Deps.client` returns a client from `xrp-dev/client` (Promises) or `xrp-dev/effect/client`. `xrp-dev/mcp` exports the tool registry and a transport-agnostic JSON-RPC handler (batches included; an array in gives an array of replies out).
 
-```ts
-import { createRpcClient, PUBLIC_RPC_URLS } from "xrp-dev";
+```ts run
+import { createRpcClient, PUBLIC_RPC_URLS } from "xrp-dev/client";
 import { handleJsonRpc, tools } from "xrp-dev/mcp";
 
 const deps = { client: () => createRpcClient({ url: PUBLIC_RPC_URLS.testnet }) };

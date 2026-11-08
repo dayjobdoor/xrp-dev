@@ -121,7 +121,7 @@ const verifiedContexts = new WeakSet<object>();
 const inflight = new Map<string, object>();
 
 /** One request at a time per invoice (per process). The owner context may re-enter; a duplicate gets 409. */
-async function withClaim<T>(invoiceId: string | undefined, c: Context<any>, run: () => Promise<T>): Promise<T | Response> {
+async function withClaim<T>(invoiceId: string | undefined, c: Pick<Context, "json">, run: () => Promise<T>): Promise<T | Response> {
   if (!invoiceId) return run();
   const owner = inflight.get(invoiceId);
   if (owner === c) return run();

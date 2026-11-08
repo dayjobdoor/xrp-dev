@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ClientError, type Network, type RpcClient } from "xrp-dev";
+import { ClientError, type Network, type RpcClient } from "xrp-dev/effect";
 import { Wallet } from "xrp-dev-wallet";
 import { Effect, Schema as S } from "effect";
 import { describe, expect, it } from "vite-plus/test";
@@ -111,9 +111,9 @@ describe("registry", () => {
 
 describe("tools", () => {
   it("encode, decode and hash_transaction agree on a signed payment", async () => {
-    const wallet = await Effect.runPromise(Wallet.fromSeed(SEED));
+    const wallet = Wallet.fromSeed(SEED);
     const tx = { TransactionType: "Payment", Account: wallet.address, Destination: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Amount: "1", Fee: "10", Sequence: 1 };
-    const { tx_blob, hash } = await Effect.runPromise(wallet.sign(tx));
+    const { tx_blob, hash } = wallet.sign(tx);
     const { deps } = fake();
     expect(textOf(await call(deps, "decode", { tx_blob }))).toMatchObject({ Account: wallet.address, Amount: "1" });
     expect(rawText(await call(deps, "hash_transaction", { tx_blob }))).toBe(hash);
@@ -122,7 +122,7 @@ describe("tools", () => {
   });
 
   it("deriveAddress, X-addresses and isValidAddress", async () => {
-    const wallet = await Effect.runPromise(Wallet.fromSeed(SEED));
+    const wallet = Wallet.fromSeed(SEED);
     const { deps } = fake();
     expect(rawText(await call(deps, "derive_address", { public_key: wallet.publicKey }))).toBe(wallet.address);
     const x = rawText(await call(deps, "classic_to_x_address", { address: wallet.address, tag: 5, test: true }));
@@ -183,5 +183,23 @@ describe("tools", () => {
     const hash = "A".repeat(64);
     expect(await call(deps, "tx", { transaction: hash })).toMatchObject({ result: { isError: true, content: [{ text: "tx: no answer" }] } });
     expect(calls[1]).toMatchObject({ method: "tx", params: { transaction: hash } });
+  });
+});
+
+describe("a client that returns Promises (xrp-dev/client)", () => {
+  const promiseDeps = (answers: Record<string, unknown>): Deps => ({
+    client: () => ({ request: async (method: string) => (method in answers ? answers[method] : Promise.reject(new Error(`${method}: no answer`))) }) as never,
+  });
+
+  it("serves a read tool and a prepare tool, the same as the Effect client", async () => {
+    const deps = promiseDeps({ ...NETWORK, tx: { validated: true } });
+    expect(textOf(await call(deps, "tx", { transaction: "A".repeat(64) }))).toEqual({ validated: true });
+    const prepared = textOf(await call(deps, "prepare_payment", { account: ACCOUNT, destination: ISSUER, amount: "1000000" }));
+    expect(prepared.tx_json).toMatchObject({ Account: ACCOUNT, Fee: "10", Sequence: 7 });
+  });
+
+  it("reports a failing request as a tool error, not a crash", async () => {
+    const reply = await call(promiseDeps({}), "tx", { transaction: "A".repeat(64) });
+    expect(reply).toMatchObject({ result: { isError: true } });
   });
 });

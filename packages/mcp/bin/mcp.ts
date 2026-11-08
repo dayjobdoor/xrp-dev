@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { createRpcClient, NETWORKS, type Network, PUBLIC_RPC_URLS } from "xrp-dev";
+import { createRpcClient, NETWORKS, type Network, PUBLIC_RPC_URLS } from "xrp-dev/effect";
 import pkg from "../package.json" with { type: "json" };
 import { handleJsonRpc, tools } from "../src/index.js";
 

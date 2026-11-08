@@ -8,16 +8,21 @@ import {
   NETWORKS,
   type Network,
   publicKeyToAddress,
+  type PromiseRpcClient,
   type RpcClient,
+  toEffectClient,
   type TxJson,
   xAddressToClassic,
-} from "xrp-dev";
+} from "xrp-dev/effect";
 import { Effect, Result, Schema as S } from "effect";
 
 /** `client(undefined)` is the transport's default network (testnet for the agent, `--network` for stdio). */
 export interface Deps {
-  client(network?: Network): RpcClient;
+  client(network?: Network): RpcClient | PromiseRpcClient;
 }
+
+// Either kind of client is accepted (`xrp-dev/client`'s returns Promises); the tools below run Effects.
+const rpc = (deps: Deps, network: Network | undefined) => toEffectClient(deps.client(network));
 
 export interface ToolFailure {
   readonly message: string;
@@ -186,12 +191,12 @@ export const tools: readonly Tool[] = [
       ),
       network: NetworkArg,
     }),
-    handler: ({ account, ledger_index, network }, deps) => deps.client(network).request("account_info", { account, ledger_index: ledger_index ?? "validated" }),
+    handler: ({ account, ledger_index, network }, deps) => rpc(deps, network).request("account_info", { account, ledger_index: ledger_index ?? "validated" }),
   }),
   defineTool({
     name: "tx",
     description: "Look up one transaction by hash.",
     schema: S.Struct({ transaction: Hash, network: NetworkArg }),
-    handler: ({ transaction, network }, deps) => deps.client(network).request("tx", { transaction }),
+    handler: ({ transaction, network }, deps) => rpc(deps, network).request("tx", { transaction }),
   }),
 ];

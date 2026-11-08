@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { describe, expect, it } from "vite-plus/test";
-import { PUBLIC_RPC_URLS } from "xrp-dev";
+import { PUBLIC_RPC_URLS } from "xrp-dev/effect";
 import pkg from "../package.json" with { type: "json" };
 
 const BIN = new URL("../bin/mcp.ts", import.meta.url).pathname;
