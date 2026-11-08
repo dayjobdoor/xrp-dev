@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import type { SubmittableTransaction } from "xrpl";
 import { MemoryStorageAdapter, WalletManager, type WalletAdapter } from "xrpl-connect";
-import { PasskeyAdapter, PasskeyError, registerPasskey, type PasskeyAdapterOptions } from "../src/passkey.js";
+import { focused, PasskeyAdapter, PasskeyError, registerPasskey, type PasskeyAdapterOptions } from "../src/passkey.js";
 
 const network = { id: "testnet", name: "Testnet", wss: "wss://s.altnet.rippletest.net:51233" };
 const PRF = new Uint8Array(32).fill(9);
@@ -417,5 +417,110 @@ describe("signAndSubmit failures keep the hash", () => {
     const error = (await adapter.signAndSubmit(payment(address)).catch((e: unknown) => e)) as PasskeyError;
     expect(error.message).toMatch(/tefPAST_SEQ/);
     expect(error.hash).toHaveLength(64);
+  });
+});
+
+describe("K06 a WebAuthn call waits for the window's focus (Firefox refuses it without)", () => {
+  const globals = globalThis as { window?: unknown; document?: unknown; PublicKeyCredential?: unknown };
+  afterEach(() => {
+    delete globals.window;
+    delete globals.document;
+    delete globals.PublicKeyCredential;
+  });
+
+  /** A window whose focus the test controls; `focus()` also fires the `focus` event the way a browser does. */
+  const windowWithFocus = (initial: boolean) => {
+    const win = new EventTarget();
+    let has = initial;
+    globals.window = win;
+    globals.document = { hasFocus: () => has };
+    return {
+      lose: () => void (has = false),
+      focus: () => {
+        has = true;
+        win.dispatchEvent(new Event("focus"));
+      },
+    };
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  it("runs the call in the same task while the window has focus, so Safari keeps the click's user activation", () => {
+    windowWithFocus(true);
+    let called = false;
+    void focused(async () => void (called = true));
+    expect(called).toBe(true);
+  });
+
+  it("runs the call at once where there is no document to ask", () => {
+    let called = false;
+    void focused(async () => void (called = true));
+    expect(called).toBe(true);
+  });
+
+  it("holds the call until focus returns, as after a macOS passkey sheet closes", async () => {
+    const win = windowWithFocus(false);
+    let calls = 0;
+    const pending = focused(async () => (calls++, "done"));
+    await tick();
+    expect(calls).toBe(0);
+    win.focus();
+    expect(await pending).toBe("done");
+    expect(calls).toBe(1);
+  });
+
+  it("calls anyway once the wait runs out, so the browser's own error is what the user sees", async () => {
+    windowWithFocus(false);
+    let calls = 0;
+    await focused(async () => void calls++, 20);
+    expect(calls).toBe(1);
+  });
+
+  it("connect holds the passkey prompt until the window is focused", async () => {
+    const win = windowWithFocus(false);
+    const { adapter, seen } = fakes(PRF);
+    const connecting = adapter.connect();
+    await tick();
+    expect(seen.get).toHaveLength(0);
+    win.focus();
+    await connecting;
+    expect(seen.get).toHaveLength(1);
+  });
+
+  it("registerPasskey holds the PRF read that follows the creation until focus returns", async () => {
+    const win = windowWithFocus(true);
+    globals.PublicKeyCredential = { getClientCapabilities: async () => ({ "extension:prf": true }) };
+    const rawId = new Uint8Array([1, 2, 3]).buffer;
+    const created = { rawId, getClientExtensionResults: () => ({ prf: { enabled: true } }) } as unknown as Credential;
+    const asserted = { rawId, getClientExtensionResults: () => ({ prf: { results: { first: PRF.slice().buffer } } }) } as unknown as Credential;
+    let gets = 0;
+    const credentials = {
+      create: async () => {
+        win.lose();
+        return created;
+      },
+      get: async () => (gets++, asserted),
+    };
+    const registering = registerPasskey({ rp: { id: "example.com", name: "xrp-dev" }, user: { id: new Uint8Array([1]), name: "a", displayName: "a" }, credentials });
+    await tick();
+    expect(gets).toBe(0);
+    win.focus();
+    await registering;
+    expect(gets).toBe(1);
+  });
+
+  it("names the browser's reason when it refuses the call, so a refusal is not mistaken for a dismissed prompt", async () => {
+    const refusal = Object.assign(new Error("CredentialsContainer request is not allowed."), { name: "NotAllowedError" });
+    const { adapter, credentials } = fakes(PRF);
+    credentials.get = async () => Promise.reject(refusal);
+    const error = (await adapter.connect().catch((e: unknown) => e)) as PasskeyError;
+    expect(error).toBeInstanceOf(PasskeyError);
+    expect(error.message).toBe("the passkey prompt was dismissed or timed out (CredentialsContainer request is not allowed.)");
+    expect(error.cause).toBe(refusal);
+  });
+
+  it("keeps the plain message when the browser gave no reason", async () => {
+    const { adapter, credentials } = fakes(PRF);
+    credentials.get = async () => Promise.reject(Object.assign(new Error(""), { name: "NotAllowedError" }));
+    await expect(adapter.connect()).rejects.toThrow(/^the passkey prompt was dismissed or timed out$/);
   });
 });

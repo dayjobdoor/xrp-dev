@@ -1,4 +1,5 @@
 import { entropyFromPrf, signingRefusal, toSecretNumbers, Wallet, type Algorithm } from "./index.js";
+import { focused } from "./focus.js";
 import { prfSalt, type PrfDerivation } from "./prf.js";
 import { autofill, submit, type RpcClient } from "xrp-dev/client";
 import { decode, type Definitions, type TxJson } from "xrp-dev/codec";
@@ -10,6 +11,7 @@ import type { AccountInfo, ConnectOptions, NetworkInfo, ReconnectOptions, Signed
 export type { AccountInfo, ConnectOptions, NetworkInfo, SignedMessage, SignedTransaction, SubmittedTransaction, WalletAdapter, WalletCapabilities } from "xrpl-connect";
 export type { SubmittableTransaction } from "xrpl";
 export type { PrfDerivation } from "./prf.js";
+export { focused } from "./focus.js";
 
 /** What `serializeReconnectOptions` stores; `reconnect` marks a page-load restore. */
 type StoredAccount = { reconnect?: boolean; address?: unknown; publicKey?: unknown; credentialId?: unknown; algorithm?: unknown };
@@ -82,6 +84,15 @@ const prfSupported = async () => (await pkc()?.getClientCapabilities?.().catch((
 const toBase64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const fromBase64url = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
+/**
+ * Why the browser's own reason is appended: `NotAllowedError` covers a dismissed prompt, a timeout and a browser that
+ * refused the call (no focus, no active tab). Naming only the first hid the others from the user and from bug reports.
+ */
+const dismissed = (cause: unknown) => {
+  const reason = (cause as { message?: unknown } | null)?.message;
+  return typeof reason === "string" && reason !== "" ? `the passkey prompt was dismissed or timed out (${reason})` : "the passkey prompt was dismissed or timed out";
+};
+
 /** One user-verified passkey prompt for the PRF output. A dismissed prompt is the user's choice, so it reads as one. */
 const ceremony = async (
   opts: { credentials?: Credentials; rpId?: string | undefined; derivation?: PrfDerivation | undefined },
@@ -90,8 +101,8 @@ const ceremony = async (
   const credentials = credentialsOf(opts);
   if (!credentials) throw new PasskeyError("WebAuthn is not available");
   const { rpId } = opts;
-  const credential = await credentials
-    .get({
+  const credential = await focused(() =>
+    credentials.get({
       publicKey: {
         challenge: randomChallenge(),
         ...(rpId ? { rpId } : {}),
@@ -99,11 +110,11 @@ const ceremony = async (
         userVerification: "required",
         extensions: prfExtension(opts.derivation),
       },
-    })
-    .catch((cause: unknown) => {
-      if ((cause as { name?: unknown } | null)?.name === "NotAllowedError") throw new PasskeyError("the passkey prompt was dismissed or timed out", { cause });
-      throw cause;
-    });
+    }),
+  ).catch((cause: unknown) => {
+    if ((cause as { name?: unknown } | null)?.name === "NotAllowedError") throw new PasskeyError(dismissed(cause), { cause });
+    throw cause;
+  });
   const prf = prfFirst(credential);
   if (!prf) throw new PasskeyError("this passkey or browser does not support the PRF extension");
   return { prf, credentialId: new Uint8Array((credential as PublicKeyCredential).rawId) };
@@ -127,20 +138,22 @@ export const registerPasskey = async (opts: {
   if (!credentials) throw new PasskeyError("WebAuthn is not available");
   if (!(await prfSupported())) throw new PasskeyError("this browser reports no PRF support; no passkey was created");
   const algorithm = opts.algorithm ?? "secp256k1";
-  const credential = (await credentials.create({
-    publicKey: {
-      rp: opts.rp,
-      user: { ...opts.user, id: new Uint8Array(opts.user.id) },
-      challenge: randomChallenge(),
-      pubKeyCredParams: [
-        { type: "public-key", alg: -7 },
-        { type: "public-key", alg: -257 },
-      ],
-      authenticatorSelection: { residentKey: "required", userVerification: "required" },
-      attestation: "none",
-      extensions: prfExtension(opts.derivation),
-    },
-  })) as PublicKeyCredential | null;
+  const credential = (await focused(() =>
+    credentials.create({
+      publicKey: {
+        rp: opts.rp,
+        user: { ...opts.user, id: new Uint8Array(opts.user.id) },
+        challenge: randomChallenge(),
+        pubKeyCredParams: [
+          { type: "public-key", alg: -7 },
+          { type: "public-key", alg: -257 },
+        ],
+        authenticatorSelection: { residentKey: "required", userVerification: "required" },
+        attestation: "none",
+        extensions: prfExtension(opts.derivation),
+      },
+    }),
+  )) as PublicKeyCredential | null;
   if (!credential) throw new PasskeyError("passkey was not created");
   const credentialId = new Uint8Array(credential.rawId);
   const rpId = opts.rp.id ?? (globalThis as { location?: { hostname?: string } }).location?.hostname;

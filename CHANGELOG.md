@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.5 (unreleased)
+
+- **Fix (`xrp-dev/passkey`)**: on Firefox and its derivatives (Zen) the passkey could not be created or used to sign in. Gecko rejects `navigator.credentials.create` and `.get` with `NotAllowedError` while the window is not the active one, and a macOS passkey sheet that has just closed has not given the focus back yet, so the second ceremony in a row (the PRF read after `registerPasskey`, then a signature) was refused. `registerPasskey` and every `PasskeyAdapter` ceremony now wait for the window's focus first (at most 10 s, then the call is made so the browser's own error shows). With focus the call still runs in the same task, so Safari keeps the click's user activation. `focused(call, waitMs?)` is exported from `xrp-dev/passkey` for apps that call WebAuthn themselves.
+- **`PasskeyError`**: the "dismissed or timed out" message now ends with the browser's reason, e.g. `the passkey prompt was dismissed or timed out (CredentialsContainer request is not allowed.)`. `NotAllowedError` also covers a browser that refused the call, which the old message hid. `cause` is unchanged.
+
 ## 0.1.0-alpha.4 (2026-10-22)
 
 - **`xrp-dev/xahau`**: transaction types for the Xahau-only transactions (`SetHook`, `Import`, `Invoke`, `ClaimReward`, `SetRemarks`, `Cron`, `CronSet`, `Remit`, `URIToken*`, plus `Hook`, `Remark`, `XahauAmount`, union `XahauTransaction`), after xahau.js. Types only, `Flags` are numbers, each is assignable to `TxJson`.
