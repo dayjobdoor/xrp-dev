@@ -1,6 +1,6 @@
 # Shared account across apps (plan B: Related Origin Requests) and renamable names
 
-Status: plan only. Nothing here is implemented.
+Status: plan only. Nothing here is implemented. This is the one place in the repo that names the apps that will use `xrp-dev`, because the plan is about them (see `AGENTS.md`, Boundary).
 
 ## Goal
 One passkey gives one XRPL address and one name in every app. The name can be changed.
@@ -10,8 +10,8 @@ The wallet key is derived on the client from the passkey PRF output (`Wallet.fro
 
 ## Mechanism
 1. Pick one RP ID, e.g. the domain of the canonical app. Serve `/.well-known/webauthn` there: `{"origins":["https://xrp.sh","https://pjq.jp","https://8102.jp", ...]}`.
-2. Every app passes that `rpId` to `Passkey.connect` / registration (`rpId` option already exists in `xrp-dev/wallet/passkey`).
-3. Chrome 128+ and Safari 18+ honour the list. Firefox does not (not measured here). There is no automatic fallback: on an unsupported browser a non-canonical origin that passes the shared `rpId` gets a SecurityError. Each app must detect support (`PublicKeyCredential.getClientCapabilities()`, `relatedOrigins`) and either refuse those users or register under its own `rpId`. The second route yields a different address, so one person would hold two ledger accounts. Decision needed.
+2. Every app passes that RP ID to `PasskeyAdapter({ rpId })` and to `registerPasskey({ rp: { id } })` (both from `xrp-dev/passkey`; the options exist today).
+3. Chrome 128+ and Safari 18+ honour the list. Firefox is not verified here; assume it does not. There is no automatic fallback: on an unsupported browser a non-canonical origin that passes the shared `rpId` gets a SecurityError. Each app must detect support (`PublicKeyCredential.getClientCapabilities()`, `relatedOrigins`) and either refuse those users or register under its own `rpId`. The second route yields a different address, so one person would hold two ledger accounts. Decision needed.
 4. Browsers cap the number of distinct eTLD+1 labels in the list (reported as about 5; verify). Current labels: xrp (xrp.sh), pjq, 8102, the yatteruka punycode domain, 589 (workers.dev), plus xrpeco and xrpst if they get custom domains. That is already 5 to 6.
 5. `*.589.workers.dev` hosts can share `rpId: "589.workers.dev"` without the file (workers.dev is on the Public Suffix List). Useful for dev stages only.
 
@@ -22,13 +22,13 @@ The wallet key is derived on the client from the passkey PRF output (`Wallet.fro
 
 ## Rename
 - Key everything on `account`, never on the name. Audit URLs that embed the name (xrpeco `/room/<name>`) and resolve name -> account at the edge.
-- `renameName(store, account, raw, opts)`: one `UPDATE ... WHERE account = ?`; UNIQUE(name) decides races. Authorised by a fresh passkey signature over a challenge that includes the new name.
+- `renameName(store, account, raw, opts)` in `xrp-dev/name/server` (next to `registerPasskeyAccount`): one `UPDATE ... WHERE account = ?`; UNIQUE(name) decides races. `NameStore` has no update method today (`findByAccount`, `findByName`, `create`), so the contract grows by one. Authorised by a fresh passkey signature over a challenge that includes the new name.
 - Policy (decided): no frequency limit, old name released immediately, no history. Risk accepted: a released name can be taken by someone else.
 - After a rename call `PublicKeyCredential.signalCurrentUserDetails({ rpId, userId, name, displayName })` so the passkey manager shows the new name.
 
 ## Steps
 0. Go/no-go: count the eTLD+1 labels and test the cap in Chrome and Safari. If over the cap, drop to plan A (one parent domain).
-1. xrp-dev: `renameName` + tests; drop "immutable" wording in `registerPasskeyAccount`/CHANGELOG.
+1. xrp-dev: `renameName` + tests; drop the "immutable" wording in `registerPasskeyAccount`'s doc comment, `xrp-dev/name`'s README section and `NameStore`.
 2. xrpeco: rename endpoint, UI, URL resolution; run on a dev stage.
 3. Pick the RP ID domain; publish `/.well-known/webauthn`; set `rpId` in each app.
 4. Ledger service and `NameStore` HTTP adapter; migrate each app to it.

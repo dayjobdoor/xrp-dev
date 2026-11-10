@@ -33,7 +33,7 @@ bun add xrp-dev   # or: npm i xrp-dev
 | `xrp-dev/address` | classic addresses, X-addresses, seeds |
 | `xrp-dev/codec` | `encode`, `decode`, signing blobs, `hashTransaction`, `verifyTransaction`; each takes optional `defs` (codec tables) last |
 | `xrp-dev/client` | `Client` (xrpl.js style: `request`, `autofill`, `submit`, `submitAndWait`), or the functions `createRpcClient`, `createWsClient`, `autofill`, `submit`, `submitAndWait`; `NETWORK_PRESETS` |
-| `xrp-dev/effect` | the alpha.4 API: fallible and I/O functions return `Effect`s that fail with the same error classes, pure helpers (`bytesToHex`, `ripemd160`, `isValid*Key`, ...) return values. Subpaths: `/effect/crypto`, `/effect/address`, `/effect/codec`, `/effect/wallet`, `/effect/client` |
+| `xrp-dev/effect` | the Effect API: fallible and I/O functions return `Effect`s that fail with the same error classes, pure helpers (`bytesToHex`, `ripemd160`, `isValid*Key`, ...) return values. Subpaths: `/effect/crypto`, `/effect/address`, `/effect/codec`, `/effect/wallet`, `/effect/client` |
 | `xrp-dev/xahau` | `XAHAU_DEFINITIONS`: codec tables for Xahau, pass as `defs`. Types for the Xahau-only transactions (`Remit`, `URITokenMint`, `SetHook`, `Import`, ..., union `XahauTransaction`); each is assignable to `TxJson` |
 | `xrp-dev/auth` | wallet sign-in: `createChallenge`, `verifyLogin` (server), `login(adapter, { app })` (browser); see [Wallet sign-in](#wallet-sign-in-xrp-devauth) |
 | `xrp-dev/name` | one unique name per account: rules, client checks (`createNameChecker`, `registerWithName`). Browser-safe, no `effect` |
@@ -70,7 +70,7 @@ await client.disconnect();
 
 `client.request("account_info", { account })` and xrpl.js' `client.request({ command: "account_info", account })` both resolve to the node's `result`. A `wss://` URL gives a WebSocket client; `"mainnet"`, `"testnet"` and `"devnet"` name the public nodes. Every call takes `{ signal }` to abort it (it rejects with `ClientError` reason `aborted`) and `autofill`, `submit`, `submitAndWait` take `{ timeoutMs }` to bound it (reason `timeout`). A client you write yourself is handed that `signal` as `request(method, params, { signal })`; ignore it and the call still stops waiting, but your request keeps running. A `WebSocket` client's `close()` / `disconnect()` is not final: a later request opens a new socket. On a WebSocket a timeout fails only the request that timed out; the socket is replaced after three timeouts in a row with nothing heard from the node in between. `maxBodyBytes` (default 5 MiB) caps one HTTP body or one WebSocket message; a WebSocket message over it fails the socket with `too_large`. `submitAndWait` takes `timeoutMs` as one deadline for the whole call; once the transaction is submitted, errors while polling are retried until that deadline, and a resubmitted blob the node answers `tefALREADY` or `tefPAST_SEQ` is looked up by hash and resolves with the ledger's result.
 
-Everything in `crypto`, `address` and `codec` is synchronous: a result is returned, and a failure throws the entry's error class (`AddressError`, `CodecError`, `CryptoError`). Only the client is asynchronous: its methods return Promises that reject with `ClientError`. The errors are plain `Error` subclasses with `_tag` and `reason`. `crypto`, `address`, `codec`, `auth` and `wallet` import no `effect`, so a bundle of those subpaths carries none of it; the client, the root `xrp-dev` entry (which re-exports the client) and `xrp-dev/name/server` do. For Effects, import from `xrp-dev/effect/...` instead; the functions and errors are the same. `PasskeyAdapter` and `xrp-dev/mcp` accept either client (`toEffectClient` from `xrp-dev/effect/client` converts one explicitly). 
+Everything in `crypto`, `address` and `codec` is synchronous: a result is returned, and a failure throws the entry's error class (`AddressError`, `CodecError`, `CryptoError`). Only the client is asynchronous: its methods return Promises that reject with `ClientError` (`submitAndWait` rejects with `CodecError` for a blob that does not decode, before anything is sent). The errors are plain `Error` subclasses with `_tag` and `reason`. `crypto`, `address`, `codec`, `auth` and `wallet` import no `effect`, so a bundle of those subpaths carries none of it; the client, the root `xrp-dev` entry (which re-exports the client) and `xrp-dev/name/server` do. For Effects, import from `xrp-dev/effect/...` instead; the functions and errors are the same, except that `Client` and `submitAndWait` exist only as Promise code (`xrp-dev/effect/client` has the Effect client). `PasskeyAdapter` and `xrp-dev/mcp` accept either client (`toEffectClient` from `xrp-dev/effect/client` converts one explicitly). 
 
 ## Wallet sign-in (`xrp-dev/auth`)
 
@@ -90,8 +90,8 @@ const consumeChallenge = (nonce: string, expiresAtMs: number) => {
 
 app.get("/api/auth/challenge", async (c) => c.json({ challenge: await createChallenge(c.env.JWT_SECRET, { app: APP, origin: ORIGIN }) }));
 app.post("/api/auth/login", async (c) => {
-  const body = await c.req.json();
-  const r = await verifyLogin(c.env.JWT_SECRET, { app: APP, origin: ORIGIN, ...body, consumeChallenge }); // `{ address }` or `{ code }`
+  const { challenge, signature, publicKey, proof, name } = await c.req.json(); // never spread the body: it must not set `app`, `origin` or `now`
+  const r = await verifyLogin(c.env.JWT_SECRET, { app: APP, origin: ORIGIN, challenge, signature, publicKey, proof, name, consumeChallenge }); // `{ address }` or `{ code }`
   // set the session for r.address
 });
 ```

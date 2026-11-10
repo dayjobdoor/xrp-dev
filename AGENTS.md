@@ -5,7 +5,7 @@ XRPL SDK for workerd, Bun, browsers and Node, published as one npm package, `xrp
 ## Boundary
 
 - Only `packages/wallet` holds keys; `xrp-dev`'s main entry keeps just the raw primitives the wallet builds on (`crypto`'s `sign` / `getPublicKey` / `addScalars` / `isValidPrivateKey`, the seed codecs in `address`). No API accepts or returns seeds or private keys outside the wallet; the MCP server reads and prepares, never signs or submits.
-- A package imports only its dependencies, never another package's `src/`. Consumers (the apps that use `xrp-dev`) are not referenced from here.
+- A package imports only its dependencies, never another package's `src/`. Consumers (the apps that use `xrp-dev`) are not referenced from here; the one exception is the planning note `docs/shared-account-plan.md`, and `wallet.test.ts` names two apps only as the pinned inputs of their frozen derivations.
 - Secrets never go into the repo; releases are keyless (below).
 
 ## Conventions
@@ -20,7 +20,7 @@ XRPL SDK for workerd, Bun, browsers and Node, published as one npm package, `xrp
 
 ## Verify
 
-`mise run check` is the gate (its tasks are in `mise.toml`, CI runs the same). It also packs the tarball, runs publint and attw, installs it into a throwaway project and runs the consumer probe (`scripts/check-packages.ts`).
+`mise run check` is the gate (its tasks are in `mise.toml`; the `check` job of `ci.yml` and the `verify` job of `publish.yml` run the same commands; `ci.yml` also has a `changelog` job and a run of the packed tarball on Node 20.19, and is manual-only while GitHub billing blocks runs). It also packs the tarball, runs publint and attw, installs it into a throwaway project and runs the consumer probe (`scripts/check-packages.ts`).
 
 `bun run build` builds core, wallet, mcp and x402 and assembles them (also what `prepare` runs). `bun.lock` and the hoisted linker (`bunfig.toml`) are required: `check-packages.ts` reads the peers' and `effect`'s locked versions (an `effect` override pins the consumer) from the root `node_modules`.
 

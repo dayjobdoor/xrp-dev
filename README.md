@@ -11,8 +11,9 @@ XRPL SDK for workerd, Bun, browsers and Node (`xrp-dev`: plain functions and Pro
 | [`skills`](skills) | Agent Skills for code that uses the package |
 
 ```sh
+mise install     # bun and node, pinned in mise.toml
 bun install
-mise run check   # typecheck, tests, pack + consumer check
+mise run check   # lint, typecheck, tests, bundle budgets, pack + consumer check
 ```
 
 Contributing and release rules: [AGENTS.md](AGENTS.md). Changes: [CHANGELOG.md](CHANGELOG.md). MIT.

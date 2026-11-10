@@ -66,10 +66,9 @@ footer { border-top: 1px solid var(--line); padding: var(--space); text-align: c
     <div class="eyebrow">xrp-dev / Design Document / rev. 2026-10-11</div>
     <h1>xrp-dev <span>//</span> Web Standard XRPL SDK</h1>
     <p class="lead">
-      An XRPL SDK with no Node.js dependency, developed as a monorepo in this repository (<code>codemode</code>).
-      Besides the library itself, the same repository provides the entry points used from AI (Code Mode connector, MCP, Skills) and a browser app that signs with a Passkey.
+      An XRPL SDK with no Node.js dependency, developed as a monorepo in this repository. It began inside a larger monorepo named <code>codemode</code>; sections marked Historical describe that period.
       This document covers the API, dependencies, and tests of each package.
-      Published as one npm package, <code>xrp-dev</code> (<code>xrp-dev/wallet</code>, <code>xrp-dev/passkey</code>, <code>xrp-dev/mcp</code>). The three-name layout below is the source layout, not three publishes.
+      Published as one npm package, <code>xrp-dev</code> (<code>xrp-dev/wallet</code>, <code>xrp-dev/passkey</code>, <code>xrp-dev/mcp</code>, <code>xrp-dev/x402</code>, plus <code>crypto</code>, <code>address</code>, <code>codec</code>, <code>client</code>, <code>auth</code>, <code>name</code>, <code>xahau</code> and <code>effect/*</code>; the list is <code>exports</code> in <code>packages/core/package.json</code>). The four-package layout below (core, wallet, mcp, x402) is the source layout, not four publishes.
     </p>
   </div>
 </header>
@@ -96,10 +95,10 @@ footer { border-top: 1px solid var(--line); padding: var(--space); text-align: c
 <!-- 00 -->
 <section id="status">
   <h2><span class="num">00</span>Status of this revision</h2>
-  <p>Record of the design and decisions (<a href="#decisions">section 10</a>). Change history is in <a href="../../CHANGELOG.md#xrp-dev-history-imported">CHANGELOG.md</a> (xrp-dev history section).</p>
+  <p>Record of the design and decisions (<a href="#decisions">section 10</a>). Change history is in <a href="../CHANGELOG.md">CHANGELOG.md</a>.</p>
   <div class="callout warn">
-    <strong>Historical for the Workers.</strong> The Workers <code>xrpl</code> and <code>agent</code> (<code>codemode/apps/</code>, <code>codemode/infra/</code>), their Code Mode connector and the browser app were retired; their <code>submit</code> and codec tools moved to the app's <code>/mcp</code> (<a href="README.md">README.md</a>). The package sections still hold.
-    Prohibitions are in the <code>@xrp-dev</code> packages section of the root <code>AGENTS.md</code>. This document is the design; if it disagrees with them, follow them. The packages moved from <code>codemode/packages/</code> to the root <code>packages/</code>; paths below are current.
+    <strong>Historical for the Workers.</strong> The Workers <code>xrpl</code> and <code>agent</code> (<code>codemode/apps/</code>, <code>codemode/infra/</code>), their Code Mode connector and the browser app were retired; their <code>submit</code> and codec tools moved to the consuming app. This document was written on 2026-10-11 and only partly kept up since: the crypto, codec, test-design and npm sections are mostly current; sections 03, 05, 09 and 10 are marked Historical, and later features (<code>auth</code>, <code>name</code>, <code>xahau</code>, <code>x402</code>, the Effect entries) are in <a href="layering.md">layering.md</a>, <a href="../CHANGELOG.md">CHANGELOG.md</a> and the package READMEs.
+    Prohibitions are in the Boundary section of the root <code>AGENTS.md</code>. If this document disagrees with it, follow <code>AGENTS.md</code>. Paths below that name <code>packages/</code> are current.
     <span class="tag">needs verification</span> marks an assumption that has not been run and confirmed yet. Phases 0–4 are implemented (2026-10-11). Points that changed in implementation are noted in each section.
   </div>
 </section>
@@ -142,6 +141,7 @@ footer { border-top: 1px solid var(--line); padding: var(--space); text-align: c
 <!-- 03 -->
 <section id="layout">
   <h2><span class="num">03</span>Repository layout</h2>
+  <div class="callout warn"><strong>Historical.</strong> The tree below, with <code>codemode/</code>, <code>apps/</code>, <code>infra/</code> and the Alchemy stack, is the earlier monorepo; this repository now holds <code>packages/</code>, <code>skills/</code>, <code>scripts/</code> and <code>docs/</code> only. The current layout and rules are in <code>AGENTS.md</code> and <code>docs/layering.md</code>.</div>
 <pre><code>codemode/                      # the Alchemy stack name is codemode
 ├── apps/
 │   ├── dev/                   # Worker xrpl: private read-only XRPL REST API (src/) and the Passkey browser app (app/; static assets)
@@ -192,7 +192,7 @@ apps/agent    ← xrp-dev-mcp, xrp-dev (xrp-dev-wallet only in tests)</code></pr
     <tr><td><code>xrp-dev/address</code></td><td><code>deriveAccountId(publicKey)</code>, <code>encodeAccountId</code> / <code>decodeAccountId</code>, <code>isValidClassicAddress</code>, <code>classicToXAddress</code> / <code>xAddressToClassic</code></td><td>Supports X-address (XLS-5d).</td></tr>
     <tr><td><code>xrp-dev/codec</code></td><td><code>encode(tx)</code>, <code>decode(hex)</code>, <code>encodeForSigning(tx)</code>, <code>encodeForMultisigning(tx, account)</code>, <code>hashTransaction(blob)</code>, <code>definitions</code></td><td>Driven by the definitions (a snapshot of <code>server_definitions</code>). Types are generated from these definitions.</td></tr>
     <tr><td><code>xrp-dev/client</code></td><td><code>createRpcClient({ url, fetch?, timeoutMs?, maxBodyBytes? })</code>, <code>createWsClient({ url, WebSocket? })</code>, <code>autofill(client, tx)</code>, <code>submit(client, blob)</code></td><td><code>autofill</code> and <code>submit</code> return Promises and the clients' <code>request</code> / <code>close</code> return Promises that reject with <code>ClientError</code>; the Effect version is <code>xrp-dev/effect/client</code>; <code>xrp-dev-wallet</code> and <code>xrp-dev-mcp</code> accept either (<code>toEffectClient</code>). Carries over the behavior of <code>Rippled.ts</code> in the current <code>apps/xrpl</code> (10-second deadline, 5 MB limit, errors inside a 200 response become typed errors). <code>submit</code> accepts only signed blobs.</td></tr>
-    <tr><td>Root (<code>xrp-dev</code>)</td><td><code>verifyTransaction(blob)</code>, <code>signerMatchesAccount</code>, <code>NETWORKS</code>, <code>PUBLIC_RPC_URLS</code>, <code>publicKeyToAddress</code></td><td>Added on 2026-10-11 (<code>verifyTransaction</code> was moved from wallet). It holds no keys, so servers (such as the MCP <code>submit</code>) can import it. <code>deriveAddress</code> rejects anything that is not a public key (not 33 bytes, or neither an ED prefix nor a valid compressed secp256k1 point).</td></tr>
+    <tr><td>Root (<code>xrp-dev</code>)</td><td><code>verifyTransaction(blob)</code>, <code>signerMatchesAccount</code>, <code>NETWORKS</code>, <code>PUBLIC_RPC_URLS</code>, <code>publicKeyToAddress</code></td><td>Added on 2026-10-11 (<code>verifyTransaction</code> was moved from wallet). It holds no keys, so servers (such as the MCP <code>submit</code>) can import it. <code>publicKeyToAddress</code> rejects anything that is not a public key (not 33 bytes, or neither an ED prefix nor a valid compressed secp256k1 point).</td></tr>
   </table>
 <pre><code>// Public API of xrp-dev (excerpt): plain functions; the Effect twins are under xrp-dev/effect
 export class CodecError extends Error { readonly _tag: "CodecError"; readonly reason: "unknown_field" | "bad_type" | "out_of_range" | "bad_length"; readonly field?: string }
@@ -232,11 +232,11 @@ export class Wallet {
       <li>The key exists temporarily in JavaScript memory.</li>
       <li>It cannot be used with authenticators or browsers that do not support PRF.</li>
       <li>If the same Passkey is lost, the same address can never be restored. Therefore a Secret Numbers backup is shown at creation (an app requirement).</li>
-      <li>The HKDF salt and info are fixed to <code>"xrp-dev/prf/v1"</code>, with the version included in the name.</li>
+      <li>The default HKDF salt and info are <code>"xrp-dev/prf/v1"</code>, with the version included in the name; an app with its own frozen scheme passes <code>derivation</code> (<code>{ salt, info }</code>).</li>
     </ul>
   </div>
   <div class="callout warn">
-    <strong>Signing refusal (<code>signingRefusal</code>).</strong> On 2026-10-11 <code>xrp-dev-wallet</code> exports <code>signingRefusal</code>. It refuses to sign <code>Batch</code>, <code>SetRegularKey</code>, <code>SignerListSet</code>, <code>DelegateSet</code>, and <code>AccountSet</code> with <code>asfDisableMaster</code>. It is enforced in <code>PasskeyAdapter.sign</code> / <code>signAndSubmit</code>, and the app's confirmation screen uses the same function.
+    <strong>Signing refusal (<code>signingRefusal</code>).</strong> On 2026-10-11 <code>xrp-dev-wallet</code> exports <code>signingRefusal</code>. It refuses to sign <code>Batch</code>, <code>SetRegularKey</code>, <code>SignerListSet</code>, <code>DelegateSet</code>, <code>SetHook</code>, <code>AccountSet</code> with <code>asfDisableMaster</code>, and a Xahau <code>Import</code> whose XPOP cannot be read or whose inner transaction hands over the account's keys. It is enforced in <code>PasskeyAdapter.sign</code> / <code>signAndSubmit</code>, and the app's confirmation screen uses the same function.
   </div>
 
   <h3><code>xrp-dev-wallet/passkey</code> — xrpl-connect adapter</h3>
@@ -257,7 +257,7 @@ export class Wallet {
   off?(event: WalletAdapterEvent, cb: (data: unknown) =&gt; void): void;
 }</code></pre>
   <ul>
-    <li><strong>No dependency on xrpl-connect.</strong> xrpl-connect has <code>xrpl</code> (xrpl.js) as a peer dependency, and its dependencies also include <code>@types/node</code>. Even <code>import type</code> pulls <code>@types/node</code> into the types, so only the needed types (such as <code>AccountInfo</code>) are declared inside the package, and <code>satisfies WalletAdapter</code> is checked in a test (devDependency) (K01).</li>
+    <li><strong>No runtime dependency on xrpl-connect.</strong> <code>xrp-dev/passkey</code> only <code>import type</code>s from the optional <code>xrpl-connect</code> peer (and re-exports those types); nothing of it is bundled. <code>xrp-dev/auth</code> declares its own <code>LoginWallet</code> shape so that it needs no peer at all (K01).</li>
     <li><strong>Implementation of each method:</strong>
       <ul>
         <li><code>connect()</code>: calls <code>navigator.credentials.get()</code> with PRF and creates the key with <code>Wallet.fromPrf</code>.</li>
@@ -274,6 +274,7 @@ export class Wallet {
 <!-- 05 -->
 <section id="ai">
   <h2><span class="num">05</span>AI integration and the app</h2>
+  <div class="callout warn"><strong>Historical.</strong> The Code Mode connector, the Pi agent, the Service Binding and the remote <code>submit</code> MCP tool were retired with the apps; <code>xrp-dev/mcp</code> reads and prepares only and never submits (it also answers <code>ping</code>). The current layout and rules are in <code>AGENTS.md</code> and <code>docs/layering.md</code>.</div>
   <p>There are four entry points used from AI, and all of them call the same <code>xrp-dev</code> functions. The following table fixes at which entry points signing and submission are possible.</p>
   <table>
     <tr><th>Entry point</th><th>Runtime</th><th>Read / compute</th><th>Pre-signing preparation</th><th>Signing</th><th>Submission</th></tr>
@@ -326,8 +327,8 @@ export class Wallet {
 
   <h3>Skills</h3>
   <ul>
-    <li><code>packages/skills/xrpl-tx-build/SKILL.md</code>: procedure from assembling Payment / TrustSet / OfferCreate, through autofill (Fee, Sequence, LastLedgerSequence), to verified confirmation after submission.</li>
-    <li><code>packages/skills/xrpl-codec-debug/SKILL.md</code>: decoding <code>tx_blob</code>, field order, how to read amount representations.</li>
+    <li><code>skills/xrpl-tx-build/SKILL.md</code>: procedure from assembling Payment / TrustSet / OfferCreate, through autofill (Fee, Sequence, LastLedgerSequence), to verified confirmation after submission.</li>
+    <li><code>skills/xrpl-codec-debug/SKILL.md</code>: decoding <code>tx_blob</code>, field order, how to read amount representations.</li>
     <li>The frontmatter (<code>name</code>, <code>description</code>) follows the Agent Skills format. The code examples inside are executed by tests (S02).</li>
   </ul>
 
@@ -419,7 +420,7 @@ export class Wallet {
   <table>
     <tr><th>Feature</th><th>Implementation</th><th>Notes</th></tr>
     <tr><td>SHA-256 / SHA-512</td><td><code>@noble/hashes</code></td><td></td></tr>
-    <tr><td>RIPEMD-160</td><td>Pure TS (about 80 lines)</td><td>Not in Web Crypto</td></tr>
+    <tr><td>RIPEMD-160</td><td><code>@noble/hashes/legacy</code></td><td>Not in Web Crypto</td></tr>
     <tr><td>Base58Check</td><td>Pure TS (BigInt). The checksum is SHA-256 twice</td><td></td></tr>
     <tr><td>secp256k1</td><td><code>@noble/curves</code> (D4). RFC 6979 deterministic nonce, low-S, DER over the 32-byte SHA-512-Half digest (<code>prehash: false</code>). Verify additionally enforces rippled's 8..72-byte DER bound, 32-byte digests and low-S</td><td>Web Crypto does not have secp256k1</td></tr>
     <tr><td>ed25519</td><td><code>@noble/curves</code> (D4). RFC 8032. Verification is strict (<code>zip215: false</code>: S &lt; L, rejects non-canonical point encodings and small-order public keys). noble checks the cofactored equation, rippled's donna the cofactorless one</td><td>Web Crypto's <code>Ed25519</code> is not used. Support on Bun and browsers has not been verified <span class="tag">needs verification</span>. May be swapped in once support is uniform</td></tr>
@@ -450,7 +451,7 @@ export class Wallet {
     <tr><td>E (e2e)</td><td>Prepare, sign, and submit on testnet. Nothing is sent to the production Worker</td><td><code>bun test</code></td><td>Manual only</td></tr>
   </table>
   <ul>
-    <li><strong>Runtime check:</strong> tests written with <code>import { describe, it, expect } from "vite-plus/test"</code> also run as-is under <code>bun test</code> (<code>bun run test:packages:bun</code>, Bun 1.4.2).</li>
+    <li><strong>Runtime check:</strong> tests written with <code>import { describe, it, expect } from "vite-plus/test"</code> also run as-is under <code>bun test</code> (<code>bun run test:bun</code>, Bun 1.4).</li>
     <li><strong>How workerd is run:</strong> <code>@cloudflare/vitest-pool-workers</code> (0.23.0) requires vitest ^4.1 and cannot be combined with Vitest 5. So on workerd it takes the following form (<code>packages/core/test/portability.test.ts</code>).
       <ol>
         <li>Pass the fixed vectors, and expected values produced from xrpl.js on the host side, to a runner Worker.</li>
@@ -465,7 +466,7 @@ export class Wallet {
         <li><code>@xrplf/secret-numbers</code> 3.0.0</li>
         <li><code>fast-check</code> 4.10.2</li>
       </ul>
-      All are ISC-licensed. When copying fixtures, record the source commit and license in <code>test/vectors/README</code>.</li>
+      All are ISC-licensed. When copying fixtures, record the source commit and license in <code>packages/core/test/vectors/README.md</code>.</li>
   </ul>
 
   <h3>Fixed vectors (confirmed against the oracles, 2026-10-11)</h3>
@@ -487,7 +488,7 @@ export class Wallet {
     <tr><th>ID</th><th>What is checked</th><th>Method</th></tr>
     <tr><td>P01</td><td>No Node APIs are used at the type level</td><td>Run <code>tsc --noEmit</code> on each package with <code>types: []</code> and <code>lib: ["ES2022","DOM"]</code> in <code>tsconfig</code>. Using <code>Buffer</code> etc. gives a type error</td></tr>
     <tr><td>P02</td><td>No traces of Node in the bundle</td><td>Fail if the output of <code>bun build --target=browser</code> contains <code>node:</code>, <code>require(</code>, <code>Buffer</code>, or <code>process.</code></td></tr>
-    <tr><td>P03</td><td>All W cases pass on Bun. The plain entries (crypto, address, codec, auth, name) bundle without importing <code>effect</code> (<code>portability.test.ts</code>)</td><td><code>bun test packages/*/test</code></td></tr>
+    <tr><td>P03</td><td>All W cases pass on Bun. The plain entries (crypto, address, codec, auth, name) bundle without importing <code>effect</code> (<code>portability.test.ts</code>)</td><td><code>bun run test:bun</code> (core, wallet and the root <code>test/</code>)</td></tr>
     <tr><td>P04</td><td>The fixed-vector and differential cases pass on workerd</td><td>Run the runner Worker on workerd; 0 failures in the result JSON</td></tr>
     <tr><td>P05</td><td>The same cases pass in a browser (Phase 2)</td><td>Open the runner page with Playwright</td></tr>
   </table>
@@ -600,17 +601,17 @@ export class Wallet {
 
 // xrp-dev: subpaths ./crypto ./address ./codec ./client. Runtime: @noble/curves and @noble/hashes (dependencies), effect (dependency; the plain entries do not load it)
 { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "effect": "^4.0.2" },
-  "devDependencies": { "fast-check": "…", "workerd": "1.20260918.1", "xrpl": "^5.3.0", "ripple-*": "…" } }
+  "devDependencies": { "fast-check": "…", "workerd": "1.20261108.1", "xrpl": "^5.3.0", "ripple-*": "…" } }
 
 // xrp-dev-wallet (subpath ./passkey)
 {
-  "dependencies": { "xrp-dev": "workspace:*" },
+  "dependencies": { "xrp-dev": "workspace:^" },
   "peerDependencies": { "xrpl-connect": "^1.0.0", "xrpl": "^4.0.0 || ^5.0.0" }   // both optional. Used only by the types of ./passkey
 }
 
 // xrp-dev-mcp (bin xrp-dev-mcp has a #!/usr/bin/env node shebang and runs under Node and Bun)
-{ "dependencies": { "xrp-dev": "workspace:*" } }</code></pre>
-<pre><code>// tsconfig.base.json (this single file is the shared one)
+{ "dependencies": { "xrp-dev": "workspace:^" } }</code></pre>
+<pre><code>// packages/tsconfig.base.json (this single file is the shared one)
 {
   "compilerOptions": {
     "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
@@ -621,9 +622,9 @@ export class Wallet {
   }
 }</code></pre>
   <ul>
-    <li><strong>Removed:</strong> the <code>require</code> condition (only ESM is emitted) and the TypeScript peer dependency. <code>engines.node</code> (<code>&gt;=20.19</code>) is set in every package as the floor for Node consumers.</li>
+    <li><strong>Removed:</strong> the <code>require</code> condition (only ESM is emitted) and the TypeScript peer dependency. <code>engines.node</code> (<code>&gt;=20.19</code>) is set in core, wallet and mcp as the floor for Node consumers.</li>
     <li><strong>Versions:</strong> TypeScript is 7.0.2, the same as the repository (not made a peer dependency of the packages. The consumer-side project of <code>bun run check</code> installs it separately for type checking).</li>
-    <li><strong>Names:</strong> as of 2026-10-11, <code>xrp-dev</code>, <code>xrp-dev-wallet</code>, and <code>xrp-dev-mcp</code> do not exist on npm (confirmed with <code>npm view</code>). They have not been claimed. The old <code>@xrp-dev/passkey</code> and <code>@xrp-dev/codemode</code> were merged on 2026-10-11 (D7).</li>
+    <li><strong>Names:</strong> as of 2026-10-11, <code>xrp-dev</code> did not exist on npm (confirmed with <code>npm view</code>); it was first published on 2026-10-16 and the other names were never claimed. The old <code>@xrp-dev/passkey</code> and <code>@xrp-dev/codemode</code> were merged on 2026-10-11 (D7).</li>
     <li><strong>Build and checks:</strong> <code>bun run build</code> at the repo root produces <code>dist</code> in the order core → wallet → mcp → x402 and assembles them into the <code>xrp-dev</code> package. The apps and tests also read <code>dist</code>, so build first before <code>typecheck</code>, <code>test</code>, <code>plan</code>, and <code>deploy</code> (<code>typecheck</code> and <code>test</code> run the build themselves). <code>bun run check</code> (also run in CI) first checks the bundles, then runs publint and attw (ESM only) on the tarball made by <code>bun pm pack</code>, installs it into a separate project, imports every subpath on Node and Bun, runs the <code>xrp-dev-mcp</code> bin under both, and checks types with <code>tsc</code> (node16 and bundler).</li>
     <li><strong>Publishing:</strong> <code>npm publish</code> does not rewrite <code>workspace:*</code>, so <code>.github/workflows/publish.yml</code> publishes the <code>bun pm pack</code> tarball that <code>bun run check</code> verified (<code>npm publish &lt;tgz&gt;</code>, GitHub OIDC trusted publishing, provenance automatic). The tarball's SHA-256 is recorded after the check and re-verified in the publishing job before <code>npm publish</code>. <code>id-token: write</code> is given only to the publishing job. Claiming the npm organization <code>@xrp-dev</code> is a human task.</li>
   </ul>
@@ -632,6 +633,7 @@ export class Wallet {
 <!-- 09 -->
 <section id="roadmap">
   <h2><span class="num">09</span>Roadmap</h2>
+  <div class="callout warn"><strong>Historical.</strong> The phases record the plan of 2026-10-11, not the current state. The current layout and rules are in <code>AGENTS.md</code> and <code>docs/layering.md</code>.</div>
   <table>
     <tr><th>Phase</th><th>Content</th><th>Done when</th></tr>
     <tr><td><strong>0. Move</strong></td><td>Move <code>xrpl</code> and <code>agent</code> to <code>apps/</code>. Fix workspaces, scripts, CI, <code>main</code> in <code>infra</code>, and paths in docs</td><td><code>alchemy plan</code> shows updates only. Existing tests and production e2e 5/5</td></tr>
@@ -639,7 +641,7 @@ export class Wallet {
     <tr><td><strong>2. wallet</strong></td><td>Seed, keys, signing, Secret Numbers, PRF</td><td>W-W*</td></tr>
     <tr><td><strong>3. AI entry points</strong></td><td>Integrate <code>codemode/apps/agent/src/xrp-connector.ts</code> into the agent, and <code>xrp-dev-mcp</code> into the agent's <code>/mcp</code> and Bun stdio. Two Skills</td><td>C*, M*, S*</td></tr>
     <tr><td><strong>4. passkey, app, submission</strong></td><td><code>xrp-dev-wallet/passkey</code> and <code>codemode/apps/dev/app</code>. Add <code>submit</code> to the agent's MCP (update <code>AGENTS.md</code> first). Get the "AI prepares, a person signs" flow working end to end</td><td>K*, A*, M06–M09. testnet e2e (E)</td></tr>
-    <tr><td><strong>5. Audit</strong></td><td>The curves are noble (audited); have a third party review the rest (codec, address, wallet derivation, MCP server, glue). Swap in Web Crypto's <code>Ed25519</code> if it becomes uniform across the 3 environments. Findings from the internal review (curves, signing checks, submission, app) have been fixed (Security in the CHANGELOG). The third-party audit has not been done</td><td>All audit findings closed</td></tr>
+    <tr><td><strong>5. Audit</strong></td><td>The curves are noble (audited); have a third party review the rest (codec, address, wallet derivation, MCP server, glue). Swap in Web Crypto's <code>Ed25519</code> if it becomes uniform across the 3 environments. Findings from the internal review (curves, signing checks, submission, app) have been fixed (see the Fix entries in <code>CHANGELOG.md</code>). The third-party audit has not been done</td><td>All audit findings closed</td></tr>
     <tr><td><strong>6. XLS-83d</strong></td><td>Support ledger-native Passkey signing after the specification becomes Final. As of 2026-10-11, the specification is still Draft (rev. 2, 2024-11-20), and discussion <a href="https://github.com/XRPLF/XRPL-Standards/discussions/236">#236</a> is Closed. rippled's <code>server_definitions</code> has no Passkey fields. The conditions to start are not met</td><td>Update the definitions and add a <code>Signer</code></td></tr>
   </table>
 </section>
@@ -647,13 +649,14 @@ export class Wallet {
 <!-- 10 -->
 <section id="decisions">
   <h2><span class="num">10</span>Decisions (2026-10-11)</h2>
+  <div class="callout warn"><strong>Historical.</strong> The decisions are those of 2026-10-11; later ones are in <code>CHANGELOG.md</code>. The current layout and rules are in <code>AGENTS.md</code> and <code>docs/layering.md</code>.</div>
   <table>
     <tr><th>ID</th><th>Question</th><th>Decision</th></tr>
     <tr><td>D1</td><td>May the server side submit?</td><td>Yes, authenticated. Limited to one agent MCP tool, <code>submit</code>, which accepts only signed blobs (<a href="#ai">section 05</a>). <code>xrpl</code> stays read-only. Write the rule in <code>AGENTS.md</code> before implementing</td></tr>
-    <tr><td>D2</td><td>Include the SDK and AI entry points in <code>docs/requirements.md</code>?</td><td>Include them</td></tr>
+    <tr><td>D2</td><td>Include the SDK and AI entry points in the requirements document (no longer in the repository)?</td><td>Include them</td></tr>
     <tr><td>D3</td><td>Use Effect in the library?</td><td>Revised: plain TypeScript for crypto, address, codec, auth and wallet; Effect 4 for the client, the passkey adapter, the MCP handlers and <code>xrp-dev/effect</code>. Originally: yes, Effect 4 everywhere (same as the agent). <code>xrpl</code> was also moved to Effect 4 on 2026-10-11 (the hono-openapi conversion is swapped via <code>loadVendor</code>)</td></tr>
     <tr><td>D4</td><td>Implement the elliptic curves in-house?</td><td>Superseded: use <code>@noble/curves</code> and <code>@noble/hashes</code>; the in-house curves and RIPEMD-160 are removed. Reason: noble is audited and targets algorithmic constant time, the in-house BigInt code was variable-time, unaudited and 2.7x to 6x slower. Original decision was in-house with noble only as a test oracle</td></tr>
-    <tr><td>D5</td><td>Name</td><td><code>xrp-dev</code>. npm uses the scope <code>@xrp-dev/*</code>, and the GitHub repository name is <code>xrp-dev</code> (the stack name <code>codemode</code> is not changed)</td></tr>
+    <tr><td>D5</td><td>Name</td><td><code>xrp-dev</code>. npm publishes the single unscoped package <code>xrp-dev</code>, and the GitHub repository name is <code>xrp-dev</code></td></tr>
     <tr><td>D6</td><td>Domain of the browser app</td><td>Not published. When publishing, a human chooses the domain</td></tr>
     <tr><td>D7</td><td>Merge the packages?</td><td>Yes. Make it three: <code>xrp-dev</code> (no keys), <code>xrp-dev-wallet</code> (the only package that holds keys; includes <code>/passkey</code>), and <code>xrp-dev-mcp</code> (one tool registry). The Code Mode connector assumes the shape of the private <code>xrpl</code> REST API, so it lives in <code>apps/agent</code>. Reason: there were two tool implementations for MCP and Code Mode, and they diverged (argument names, signing target). Also, the server side must not import the key package (<code>verifyTransaction</code> and others were moved to core). The codec later gained the <code>Number</code> / <code>Int32</code> types, MPT amounts and Issue, and negative values for <code>FeeAmountDelta</code></td></tr>
   </table>

@@ -2,6 +2,8 @@
 
 XRPL tool registry for MCP servers, plus a local stdio server. Tools read the ledger and prepare unsigned transactions (`{ tx_json }`); nothing here holds keys, signs or submits.
 
+> **Not independently audited as a whole:** the tools only read and prepare, but the codec and address code they build on has not been reviewed by a third party. See [SECURITY.md](../../SECURITY.md).
+
 Requires Node >= 20.19 or Bun.
 
 ## MCP client config
@@ -54,5 +56,7 @@ import { handleJsonRpc, tools } from "xrp-dev/mcp";
 const deps = { client: () => createRpcClient({ url: PUBLIC_RPC_URLS.testnet }) };
 const reply = await handleJsonRpc(tools, deps, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { name: "my-server", version: "1.0.0" });
 ```
+
+A batch holds 1 to 20 messages and runs 4 of them at a time. An empty or longer array gets one `-32600` error reply instead of an array, notifications get no reply, and a batch of only notifications gets no reply at all. The stdio server applies the limits per input line: it answers each line as it arrives, so separate lines are not limited.
 
 Repository and issues: <https://github.com/dayjobdoor/xrp-dev>. MIT.
