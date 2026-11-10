@@ -13,7 +13,7 @@ import {
   verifyMessage,
   verifyProofTx,
 } from "../src/auth.js";
-import { encode, encodeForMultisigning } from "../src/codec.js";
+import { encode, encodeForMultisigning, verifyTransaction } from "../src/codec.js";
 import { sha512Half } from "../src/crypto/hash.js";
 import { bytesToHex } from "../src/crypto/hex.js";
 import * as secp256k1 from "../src/crypto/secp256k1.js";
@@ -53,7 +53,7 @@ describe("challenge", () => {
     expect(a.split(".")[1]).toMatch(/^[0-9A-F]{32}$/);
   });
 
-  it("refuses the previous `<unix ms>.<mac>` format", async () => {
+  it("refuses a challenge with two parts instead of three", async () => {
     const old = `${now}.${"ab".repeat(32)}`;
     expect(await isFreshChallenge(SECRET, old, opts)).toBe(false);
   });
@@ -136,17 +136,20 @@ describe("verifyProofTx", () => {
       const publicKey = secp256k1.getPublicKey(k);
       return { k, publicKey, id: deriveAccountId(publicKey) };
     }).sort((x, y) => (bytesToHex(x.id) < bytesToHex(y.id) ? -1 : 1));
-    const base: Record<string, unknown> = { ...proof("1.abc"), Account: encodeAccountId(keys[0]!.id), SigningPubKey: "" };
+    const base: Record<string, unknown> = { ...proof("1.abc"), Account: encodeAccountId(new Uint8Array(20).fill(1)), SigningPubKey: "" };
     const Signers = keys.map(({ k, publicKey, id }) => {
       const account = encodeAccountId(id);
       const signature = secp256k1.sign(sha512Half(encodeForMultisigning(base, account)), k);
       return { Signer: { Account: account, SigningPubKey: bytesToHex(publicKey).toUpperCase(), TxnSignature: bytesToHex(signature).toUpperCase() } };
     });
     const blob = encode({ ...base, Signers } as never);
+    // Relative to the same blob's full verification, so the check holds on any runtime and machine: the refusal skips the 32 signatures.
+    const full = performance.now();
+    expect(verifyTransaction(blob)).toBe(true);
+    const fullMs = performance.now() - full;
     const started = performance.now();
     for (let i = 0; i < 10; i++) expect(verifyProofTx(blob, scope("1.abc"))).toBeUndefined();
-    // verifying all 32 signatures costs about 130 ms a call
-    expect((performance.now() - started) / 10).toBeLessThan(25);
+    expect((performance.now() - started) / 10).toBeLessThan(fullMs / 5);
   });
 });
 
@@ -182,9 +185,16 @@ describe("verifyLogin", () => {
     expect(await verifyLogin(SECRET, { app: APP, origin: ORIGIN, challenge, signature, publicKey: wallet.publicKey })).toEqual({ code: "signature_invalid" });
   });
 
-  it("refuses a challenge in the previous format", async () => {
+  it("ignores a `now` smuggled in with the request body", async () => {
     const good = await signed();
-    expect(await verifyLogin(SECRET, { ...good, challenge: `${Date.now()}.${"ab".repeat(32)}` })).toEqual({ code: "challenge_invalid" });
+    const issuedAt = Number(good.challenge.split(".")[0]);
+    const realNow = Date.now;
+    Date.now = () => issuedAt + 6 * 60_000;
+    try {
+      expect(await verifyLogin(SECRET, { ...good, now: issuedAt + 1 } as typeof good)).toEqual({ code: "challenge_invalid" });
+    } finally {
+      Date.now = realNow;
+    }
   });
 
   it("binds the name: the signature of one name does not carry another", async () => {

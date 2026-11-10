@@ -1,4 +1,3 @@
-import type { WalletAdapter } from "xrpl-connect";
 import { publicKeyToAddress } from "./address.js";
 import { decode, signerMatchesAccount, verifyTransaction } from "./codec.js";
 import * as ed25519 from "./crypto/ed25519.js";
@@ -212,7 +211,7 @@ export const verifyLogin = async (
   if (tooLong(p.proof, MAX_PROOF) || tooLong(p.signature, MAX_SIGNATURE) || tooLong(p.publicKey, MAX_PUBLIC_KEY) || tooLong(p.name, MAX_NAME)) {
     return { code: "invalid_request" };
   }
-  const opened = await openChallenge(secret, p.challenge, p);
+  const opened = await openChallenge(secret, p.challenge, { app: p.app, origin: p.origin });
   if (!opened) return { code: "challenge_invalid" };
   const scope: LoginScope = { app: p.app, origin: p.origin, challenge: p.challenge, ...(p.name !== undefined && { name: p.name }) };
   const address =
@@ -239,12 +238,23 @@ export class LoginError extends Error {
 }
 
 /**
+ * What `login` needs from a wallet. An xrpl-connect `WalletAdapter` fits; the shape is declared here so that
+ * `xrp-dev/auth` (and its .d.ts) does not need the optional `xrpl-connect` peer.
+ */
+export type LoginWallet = {
+  readonly capabilities?: { signMessage?: boolean | undefined };
+  getAccount(): Promise<{ address: string } | null>;
+  sign(transaction: object): Promise<{ tx_blob?: string | undefined }>;
+  signMessage(message: string): Promise<{ signature: string; publicKey: string }>;
+};
+
+/**
  * Browser half. Fetches a challenge, has the connected wallet sign it (a message when the wallet can, else the proof
  * transaction) and posts it. `origin` defaults to `location.origin` and must be the one the server was configured with.
  * `name`, when given, is part of the signed text. The session cookie comes back on the response. A non-2xx answer throws a `LoginError` with its `message`.
  */
 export const login = async (
-  adapter: WalletAdapter,
+  adapter: LoginWallet,
   p: { app: string; origin?: string; base?: string; name?: string; fetch?: typeof fetch },
 ): Promise<{ address: string; name?: string }> => {
   const call = p.fetch ?? fetch;
