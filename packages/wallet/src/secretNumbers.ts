@@ -18,11 +18,16 @@ export const fromSecretNumbers = (input: string | readonly string[]): Uint8Array
   const groups = typeof input === "string" ? (input.match(/[0-9]+/g) ?? []) : input.map((g) => g.trim());
   if (groups.length !== 8 || groups.some((g) => !/^[0-9]{6}$/.test(g))) throw new WalletError({ reason: "bad_secret_numbers", message: "expected 8 groups of 6 digits" });
   const entropy = new Uint8Array(16);
-  for (const [i, group] of groups.entries()) {
-    const value = Number(group.slice(0, 5));
-    if (value > 0xffff || checksum(i, value) !== Number(group[5])) throw new WalletError({ reason: "bad_checksum", message: `secret number group ${i + 1} is invalid`, position: i + 1 });
-    entropy[i * 2] = value >> 8;
-    entropy[i * 2 + 1] = value & 0xff;
+  try {
+    for (const [i, group] of groups.entries()) {
+      const value = Number(group.slice(0, 5));
+      if (value > 0xffff || checksum(i, value) !== Number(group[5])) throw new WalletError({ reason: "bad_checksum", message: `secret number group ${i + 1} is invalid`, position: i + 1 });
+      entropy[i * 2] = value >> 8;
+      entropy[i * 2 + 1] = value & 0xff;
+    }
+    return entropy;
+  } catch (e) {
+    entropy.fill(0);
+    throw e;
   }
-  return entropy;
 };

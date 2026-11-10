@@ -262,20 +262,25 @@ describe("W-W07 / W-W08 secrets stay inside", () => {
     expect(err).toMatchObject({ reason: "destroyed" });
     expect(String(err.message)).not.toContain(privateKey);
   });
-  it("destroy zeroes the key bytes", async () => {
+  it("destroy() makes every later signature fail with `destroyed` (that the bytes are wiped is checked in zeroing.test.ts)", async () => {
     const wallet = await run(Wallet.fromSeed("snoPBrXtMeMyMHUVTgbuqAfg1SUTb"));
     const before = await run(wallet.signMessage(new Uint8Array([1])));
     expect(before).toBe(keypairs.sign("01", keypairs.deriveKeypair("snoPBrXtMeMyMHUVTgbuqAfg1SUTb").privateKey));
     wallet.destroy();
     expect((await run(Effect.flip(wallet.signMessage(new Uint8Array([1]))))).reason).toBe("destroyed");
   });
-  it("a destroy() during an in-flight sign neither zeroes that signature's key nor allows later signs", async () => {
+  it("a destroy() while sign() is running does not touch that signature's key and allows no later signs", async () => {
     const wallet = await run(Wallet.fromSeed("sEdSJHS4oiAdz7w2X2ni1gFiqtbJHqE"));
-    const tx = { TransactionType: "Payment", Account: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh", Destination: wallet.address, Amount: "1", Fee: "10", Sequence: 1 };
-    const pending = run(wallet.sign(tx, { multisign: true }));
-    wallet.destroy();
-    expect(await run(verifyTransaction((await pending).tx_blob))).toBe(true);
-    expect((await run(Effect.flip(wallet.sign(tx)))).reason).toBe("destroyed");
+    // sign() reads the transaction after it holds its copy of the key, so a getter is the one way to destroy() in the middle of it.
+    const tx = {
+      ...payment(wallet.address),
+      get Fee() {
+        wallet.destroy();
+        return "12";
+      },
+    };
+    expect(await run(verifyTransaction((await run(wallet.sign(tx))).tx_blob))).toBe(true);
+    expect((await run(Effect.flip(wallet.sign(payment(wallet.address))))).reason).toBe("destroyed");
   });
 });
 

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import type { SubmittableTransaction } from "xrpl";
 import { MemoryStorageAdapter, WalletManager, type WalletAdapter } from "xrpl-connect";
 import { focused, PasskeyAdapter, PasskeyError, registerPasskey, type PasskeyAdapterOptions } from "../src/passkey.js";
+import { copiesOf, recordAllocations } from "./allocations.js";
 
 const network = { id: "testnet", name: "Testnet", wss: "wss://s.altnet.rippletest.net:51233" };
 const PRF = new Uint8Array(32).fill(9);
@@ -14,14 +15,19 @@ const PRF = new Uint8Array(32).fill(9);
 const ADDRESS_FOR_PRF_9 = "rKGPScxUfLBjQDP6ZWudDHTirv8k2pMZBP";
 const OTHER_PRF = new Uint8Array(32).fill(7);
 
-type Seen = { get: any[]; submit: unknown[] };
+type Seen = { get: any[]; submit: unknown[]; prf: ArrayBufferLike[] };
 /** `prf` may be a function of the 0-based `credentials.get` call number, to model the user picking another passkey later. */
 const fakes = (prf: Uint8Array | undefined | ((call: number) => Uint8Array | undefined), extra: Partial<PasskeyAdapterOptions> = {}) => {
-  const seen: Seen = { get: [], submit: [] };
-  const credentialFor = (output: Uint8Array | undefined) => ({
-    rawId: new Uint8Array([1, 2, 3]).buffer,
-    getClientExtensionResults: () => (output ? { prf: { enabled: true, results: { first: output.slice().buffer } } } : { prf: { enabled: false } }),
-  });
+  const seen: Seen = { get: [], submit: [], prf: [] };
+  // The authenticator's result is one buffer per credential, which `seen.prf` keeps so a test can look at it after the adapter is done.
+  const credentialFor = (output: Uint8Array | undefined) => {
+    const first = output?.slice().buffer;
+    if (first) seen.prf.push(first);
+    return {
+      rawId: new Uint8Array([1, 2, 3]).buffer,
+      getClientExtensionResults: () => (first ? { prf: { enabled: true, results: { first } } } : { prf: { enabled: false } }),
+    };
+  };
   const credentials = {
     get: async (options: unknown) => {
       const call = seen.get.length;
@@ -86,6 +92,24 @@ describe("K03 connect and sign", () => {
     const out = await registerPasskey({ rp: { name: "xrp-dev" }, user: { id: new Uint8Array([1]), name: "a", displayName: "a" }, credentials });
     expect(out.account?.address).toBe(ADDRESS_FOR_PRF_9);
     expect((await Effect.runPromise(Wallet.fromSecretNumbers(out.account!.secretNumbers))).address).toBe(ADDRESS_FOR_PRF_9);
+  });
+  it("wipes the PRF output of every ceremony: registration, connect, sign, and a passkey that is refused", async () => {
+    const { adapter, credentials, seen } = fakes((call) => (call === 2 ? OTHER_PRF : PRF));
+    await registerPasskey({ rp: { name: "xrp-dev" }, user: { id: new Uint8Array([1]), name: "a", displayName: "a" }, credentials });
+    await adapter.connect();
+    await adapter.signMessage("hello");
+    await expect(adapter.signMessage("hello")).rejects.toThrow(/not the connected account/);
+    expect(seen.prf).toHaveLength(4);
+    for (const output of seen.prf) expect(new Uint8Array(output).every((b) => b === 0)).toBe(true);
+  });
+  it("registration leaves no copy of the PRF output or the entropy it was made from", async () => {
+    const { credentials } = fakes(PRF);
+    const user = { id: new Uint8Array([1]), name: "a", displayName: "a" };
+    const { arrays, error } = await recordAllocations(() => registerPasskey({ rp: { name: "xrp-dev" }, user, credentials }));
+    expect(error).toBeUndefined();
+    // The entropy of PRF_9 is pinned in wallet.test.ts from node:crypto's HKDF.
+    expect(copiesOf(arrays, new Uint8Array(Buffer.from("becf842045be976731b04171409c422a", "hex")))).toBe(0);
+    expect(copiesOf(arrays, PRF)).toBe(0);
   });
 });
 

@@ -65,6 +65,7 @@ describe("plain Wallet: synchronous, throws WalletError", () => {
     const signers = decode(tx_blob).Signers as { Signer: { Account: string } }[];
     expect(signers.map((s) => s.Signer.Account)).toEqual([wallet.address]);
     expect(reasonOf(() => wallet.sign(decode(tx_blob), { multisign: true }))).toBe("bad_tx");
+    expect(reasonOf(() => wallet.sign({ ...decode(tx_blob), Account: wallet.address }))).toBe("bad_tx");
   });
 
   it("does not show the key when logged or serialized", () => {

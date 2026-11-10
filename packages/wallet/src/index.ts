@@ -1,6 +1,6 @@
 import { AddressError, decodeSeed, deriveAccountId, encodeAccountId, encodeSeed, type Algorithm } from "xrp-dev/address";
 import { decode, encode, encodeForMultisigning, encodeForSigning, hashTransaction, type Definitions, type TxJson } from "xrp-dev/codec";
-import { bytesToHex, concatBytes, CryptoError, ed25519, secp256k1, sha512Half } from "xrp-dev/crypto";
+import { bytesToHex, concatBytes, CryptoError, ed25519, secp256k1, sha512, sha512Half } from "xrp-dev/crypto";
 import { WalletError } from "./errors.js";
 import { fromSecretNumbers } from "./secretNumbers.js";
 import { prfSalt } from "./prf.js";
@@ -30,13 +30,24 @@ const keyed = <T>(f: () => T): T => {
   }
 };
 
+/** `sha512Half` for key material: the 64-byte digest holds the key in its first half, so it is wiped. */
+const secretHalf = (input: Uint8Array): Uint8Array => {
+  const digest = sha512(input);
+  try {
+    return digest.slice(0, 32);
+  } finally {
+    digest.fill(0);
+  }
+};
+
 /** ripple-keypairs' scalar search: sha512Half(bytes ‖ [discrim] ‖ i) until 0 < k < n. */
 const deriveScalar = (bytes: Uint8Array, discrim?: number): Uint8Array => {
   for (let i = 0; i <= 0xffffffff; i++) {
     const input = concatBytes(bytes, ...(discrim === undefined ? [] : [u32(discrim)]), u32(i));
     try {
-      const k = sha512Half(input);
+      const k = secretHalf(input);
       if (secp256k1.isValidPrivateKey(k)) return k;
+      k.fill(0);
     } finally {
       input.fill(0);
     }
@@ -44,20 +55,31 @@ const deriveScalar = (bytes: Uint8Array, discrim?: number): Uint8Array => {
   throw new Error("no valid scalar");
 };
 
+// The returned `privateKey` is the caller's to wipe; when derivation fails midway it is wiped here, with every intermediate.
 const deriveKeys = (entropy: Uint8Array, algorithm: Algorithm): { privateKey: Uint8Array; publicKey: Uint8Array } => {
   if (algorithm === "ed25519") {
-    const privateKey = sha512Half(entropy);
-    const publicKey = concatBytes(Uint8Array.of(ED_PREFIX), keyed(() => ed25519.getPublicKey(privateKey)));
-    return { privateKey, publicKey };
+    const privateKey = secretHalf(entropy);
+    try {
+      return { privateKey, publicKey: concatBytes(Uint8Array.of(ED_PREFIX), keyed(() => ed25519.getPublicKey(privateKey))) };
+    } catch (e) {
+      privateKey.fill(0);
+      throw e;
+    }
   }
   const root = deriveScalar(entropy);
+  let tweak: Uint8Array | undefined;
+  let privateKey: Uint8Array | undefined;
   try {
     const rootPublic = keyed(() => secp256k1.getPublicKey(root));
-    const tweak = deriveScalar(rootPublic, 0);
-    const privateKey = secp256k1.addScalars(root, tweak);
-    tweak.fill(0);
-    return { privateKey, publicKey: keyed(() => secp256k1.getPublicKey(privateKey)) };
+    tweak = deriveScalar(rootPublic, 0);
+    const key = secp256k1.addScalars(root, tweak);
+    privateKey = key;
+    return { privateKey: key, publicKey: keyed(() => secp256k1.getPublicKey(key)) };
+  } catch (e) {
+    privateKey?.fill(0);
+    throw e;
   } finally {
+    tweak?.fill(0);
     root.fill(0);
   }
 };
@@ -123,8 +145,13 @@ export class Wallet {
     const algorithm = opts.algorithm ?? "secp256k1";
     if (entropy.length !== 16) throw new WalletError({ reason: "bad_entropy", message: "entropy must be 16 bytes" });
     const { privateKey, publicKey } = deriveKeys(entropy, algorithm);
-    const address = keyed(() => encodeAccountId(deriveAccountId(publicKey)));
-    return new Wallet(address, publicKey, privateKey, algorithm);
+    try {
+      const address = keyed(() => encodeAccountId(deriveAccountId(publicKey)));
+      return new Wallet(address, publicKey, privateKey, algorithm);
+    } catch (e) {
+      privateKey.fill(0);
+      throw e;
+    }
   }
 
   static fromSeed(seed: string): Wallet {
@@ -163,8 +190,9 @@ export class Wallet {
     return this.#withKey((privateKey) => {
       // One read of `tx`: a getter must not show the refusal check one value and the signer another.
       const snapshot: TxJson = { ...tx };
+      // Neither path signs over `Signers`: a single signature next to them is a blob rippled refuses.
+      if ("Signers" in snapshot) throw new WalletError({ reason: "bad_tx", message: "transaction already has Signers; multisigned transactions cannot be signed again here" });
       if (opts.multisign) {
-        if ("Signers" in snapshot) throw new WalletError({ reason: "bad_tx", message: "transaction already has Signers; multisigned transactions cannot be signed again here" });
         const { TxnSignature: _drop, ...rest } = snapshot;
         const unsigned = { ...rest, SigningPubKey: "" };
         refuseDangerous(unsigned, opts.definitions);
@@ -257,7 +285,6 @@ export const signingRefusal = (tx: Record<string, unknown>): string | undefined 
     : undefined;
 };
 
-/** Seed for given entropy, for users who want the classic backup string. */
 /** The family seed (`s…` / `sEd…`) for 16 bytes of entropy. Throws `WalletError` (`bad_entropy`). */
 export const entropyToSeed = (entropy: Uint8Array, algorithm: Algorithm = "secp256k1"): string => {
   try {
