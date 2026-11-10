@@ -3,7 +3,7 @@
  *
  * Wire-compatible with x402-xrpl 0.3.3 (headers, invoice match, facilitator /verify and /settle).
  * `fetch` is always called as a free function: workerd rejects a method extracted from globalThis.
- * The `upto` scheme is refused; it needs to patch the response after the handler, which this gate does not do.
+ * The `upto` scheme is refused at construction; it needs to patch the response after the handler, which this gate does not do.
  */
 import type { Context, MiddlewareHandler } from "hono";
 
@@ -131,6 +131,8 @@ type GateConfig = {
   network: string;
   asset: string;
   maxTimeoutSeconds: number;
+  /** Requests this gate has settled and handed on: a second mount of the same gate on the route must not charge again. */
+  settled: WeakSet<object>;
 };
 
 /** What `chargeOnDelivery` needs from a gate. Kept off the public type: a verify-only gate would deliver for free. */
@@ -138,6 +140,7 @@ type GateInternals<E extends GateEnv> = {
   invoices: InvoiceStore;
   verifyOnly: MiddlewareHandler<E>;
   verified(c: object): boolean;
+  settled(c: object): boolean;
 };
 
 const gateInternals = new WeakMap<object, unknown>();
@@ -352,6 +355,7 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
   }
   if ("path" in params) throw new Error("the `path` option was removed: mount the gate with app.use(path, gate)");
   if ("settle" in params) throw new Error("the `settle` option was removed: the gate always settles; use chargeOnDelivery to settle after producing");
+  if (params.scheme === "upto") throw new Error("the `upto` scheme is not supported: it settles after the handler, which this gate does not do");
   if (!params.network) throw new Error('network is required, e.g. "xrpl:0" (mainnet) or "xrpl:1" (testnet)');
   if (!params.payToAddress || params.price == null || params.price === "") throw new Error("payToAddress and price are required");
   const cfg: GateConfig = {
@@ -363,6 +367,7 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
     network: params.network,
     asset: params.asset ?? "XRP",
     maxTimeoutSeconds: params.maxTimeoutSeconds ?? 600,
+    settled: new WeakSet<object>(),
   };
   const { facilitator, invoices } = cfg;
   const cache = new WeakMap<object, Verified>();
@@ -370,10 +375,9 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
   const handle =
     (settle: boolean): MiddlewareHandler<E> =>
     async (c, next) => {
-      if (cfg.scheme === "upto") {
-        return c.json({ error: "x402_scheme_unsupported", message: "upto scheme is not supported" }, 500);
-      }
       if (isCorsPreflight(c)) return next();
+      // Mounted twice on one route (say "*" and "/r"): the outer gate has settled, the inner one lets the request through.
+      if (settle && cfg.settled.has(c)) return next();
       markUncacheable(c);
 
       const signature = c.req.header(HEADER_PAYMENT_SIGNATURE);
@@ -433,13 +437,14 @@ export function requirePayment<E extends GateEnv>(params: RequirePaymentOptions)
     };
 
   const gate = handle(true);
-  gateInternals.set(gate, { invoices, verifyOnly: handle(false), verified: (c) => cache.has(c) } satisfies GateInternals<E>);
+  gateInternals.set(gate, { invoices, verifyOnly: handle(false), verified: (c) => cache.has(c), settled: (c) => cfg.settled.has(c) } satisfies GateInternals<E>);
   return gate;
 }
 
 /**
  * With a payment, verify first. Run `produce` only after that. Settle only when `produce` returns a
  * JSON object, then attach `PAYMENT-RESPONSE`. A `Response` from `produce` is returned unsettled.
+ * Use it instead of mounting the gate on the route: the middleware settles before the handler runs.
  */
 export async function chargeOnDelivery<E extends GateEnv>(
   c: Context<E>,
@@ -448,6 +453,7 @@ export async function chargeOnDelivery<E extends GateEnv>(
 ): Promise<Response> {
   const internals = gateInternals.get(gate) as GateInternals<E> | undefined;
   if (!internals) throw new Error("chargeOnDelivery needs a gate made by requirePayment");
+  if (internals.settled(c)) throw new Error("chargeOnDelivery: this gate is also mounted as middleware on the route and has already settled the request; use one or the other");
   const signature = c.req.header(HEADER_PAYMENT_SIGNATURE);
   if (!signature) {
     return (await gate(c, async () => {})) ?? c.json({}, 402);
@@ -527,6 +533,7 @@ async function finishSettle<E extends GateEnv>(c: Context<E>, next: () => Promis
     settlement,
     ...(verified.verify.payer ?? settlement.payer ? { payer: verified.verify.payer ?? settlement.payer } : {}),
   });
+  cfg.settled.add(c);
   await next();
   if (c.finalized) stampPaid(c, header);
 }

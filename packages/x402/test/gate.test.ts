@@ -145,6 +145,11 @@ describe("requirePayment", () => {
     expect(gateFor(facilitator)).toBeTypeOf("function");
   });
 
+  it("refuses the upto scheme at construction, not on every request", () => {
+    const { facilitator } = stub();
+    expect(() => gateFor(facilitator, { scheme: "upto" })).toThrow(/`upto` scheme is not supported/);
+  });
+
   it("answers 402 with the configured network, never a default", async () => {
     const { facilitator } = stub();
     const app = new Hono<Env>();
@@ -208,6 +213,19 @@ describe("invoice binding", () => {
     const res = await app.request("/r", { headers: { [SIG]: header } });
     expect(res.status).toBe(402);
     expect(calls.verify).toBe(0);
+  });
+
+  it("an invoice id in the payload does not open another invoice's requirements", async () => {
+    const { facilitator, calls } = stub();
+    const app = new Hono<Env>();
+    app.use("/r", gateFor(facilitator));
+    app.get("/r", (c) => c.text("ok"));
+    const first = JSON.parse(atob(await pay(app, "/r")));
+    const second = JSON.parse(atob(await pay(app, "/r")));
+    // Invoice A's id with invoice B's `accepted`: the requirements name another invoice, so nothing reaches the facilitator.
+    const res = await app.request("/r", { headers: { [SIG]: b64({ ...first, accepted: second.accepted }) } });
+    expect([res.status, ((await res.json()) as { error: string }).error]).toEqual([402, "payment_requirements_mismatch"]);
+    expect(calls).toEqual({ verify: 0, settle: 0 });
   });
 });
 
@@ -293,6 +311,43 @@ describe("settling", () => {
     expect(events).toEqual(["verify", "produce", "settle"]);
     expect((await app.request("/free", { headers: { [SIG]: "x" } })).status).toBe(500);
     expect(events).not.toContain("free");
+  });
+
+  it("a paid PAYMENT-SIGNATURE cannot be replayed: the settled invoice is consumed", async () => {
+    const { facilitator, calls } = stub();
+    const app = new Hono<Env>();
+    app.use("/r", gateFor(facilitator));
+    app.get("/r", (c) => c.text("ok"));
+    const header = await pay(app, "/r");
+    expect((await app.request("/r", { headers: { [SIG]: header } })).status).toBe(200);
+    const replay = await app.request("/r", { headers: { [SIG]: header } });
+    expect([replay.status, ((await replay.json()) as { error: string }).error]).toEqual([400, "unknown_invoice_id"]);
+    expect(calls).toEqual({ verify: 1, settle: 1 });
+  });
+
+  it("settles once when the same gate is mounted twice on a route", async () => {
+    const { facilitator, calls } = stub();
+    const gate = gateFor(facilitator);
+    const app = new Hono<Env>();
+    app.use("*", gate);
+    app.use("/r", gate);
+    app.get("/r", (c) => c.text("ok"));
+    const res = await app.request("/r", { headers: { [SIG]: await pay(app, "/r") } });
+    expect([res.status, await res.text(), res.headers.has("PAYMENT-RESPONSE")]).toEqual([200, "ok", true]);
+    expect(calls).toEqual({ verify: 1, settle: 1 });
+  });
+
+  it("chargeOnDelivery on a route the same gate already settled says so instead of reporting an unknown invoice", async () => {
+    const { facilitator, calls } = stub();
+    const gate = gateFor(facilitator);
+    let produced = 0;
+    const app = new Hono<Env>();
+    app.use("/r", gate);
+    app.get("/r", (c) => chargeOnDelivery(c, gate, async () => ({ n: ++produced })));
+    app.onError((err, c) => c.text(err.message, 500));
+    const res = await app.request("/r", { headers: { [SIG]: await pay(app, "/r") } });
+    expect([res.status, await res.text()]).toEqual([500, expect.stringContaining("also mounted as middleware")]);
+    expect({ produced, settle: calls.settle }).toEqual({ produced: 0, settle: 1 });
   });
 });
 

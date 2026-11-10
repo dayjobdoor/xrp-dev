@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha.7 (unreleased)
+
+- **Fix (`xrp-dev/x402`)**: a gate mounted twice on one route (say on `*` and on `/r`) settled a payment twice; it now settles once. `chargeOnDelivery` on a route that the same gate already settles as middleware throws an error that says so; before, it answered `unknown_invoice_id` after the payment was taken. `scheme: "upto"` throws at construction; before, every request, a CORS preflight included, got a 500.
+- **Fix (`xrp-dev/auth`)**: `verifyLogin` no longer reads a clock override from its argument. The README example spread the request body into it, so a body carrying `now` could replay an expired challenge for as long as it liked; the example now names the fields it takes, and `verifyLogin` ignores anything but `app` and `origin` when it opens the challenge. Do not spread a request body into `verifyLogin`; pass `challenge`, `signature`, `publicKey`, `proof` and `name` by name.
+- **Fix (`xrp-dev/auth`)**: `login` takes a `LoginWallet` (the four members it calls, which an xrpl-connect `WalletAdapter` satisfies) instead of importing `WalletAdapter`, so `xrp-dev/auth`'s `.d.ts` no longer needs the optional `xrpl-connect` peer; with `skipLibCheck: false` it was a TS2307.
+- **Fix (`xrp-dev`)**: `verifyTransaction` is `false` for a multisigned blob that lists the transaction's own `Account` as a signer; rippled refuses it ("Invalid multisigner").
+- **Docs (`xrp-dev/client`)**: `submitAndWait` rejects with `CodecError` for a blob that does not decode, before sending anything; the README and the doc comment said `ClientError`. The README and `docs/layering.md` no longer say the Effect entries mirror `Client` and `submitAndWait`, and `effect/secp256k1` / `effect/ed25519` are described as namespaces of `xrp-dev/effect/crypto`.
+- **Fix (`xrp-dev/wallet`)**: key bytes no longer linger in memory in three places: the 64-byte SHA-512 digest that key derivation took its key from (the key was its first half) is wiped, the entropy decoded by `fromSecretNumbers` is wiped when a group fails its checksum, and keys derived before a later step throws are wiped. The README lists what stays unerasable.
+- **Fix (`xrp-dev/wallet`)**: `Wallet.sign` without `multisign` refuses a transaction that already has `Signers` (`bad_tx`), as the README said; before, it returned a blob with both a signature and `Signers`, which rippled refuses.
+- **Docs (`xrp-dev/mcp`)**: the README and the `handleJsonRpc` doc comment state the batch limits: 1 to 20 messages, four at a time, one `-32600` reply for an empty or longer array.
+
 ## 0.1.0-alpha.6 (2026-11-08)
 
 - **Breaking: `xrp-dev/auth` sign-in is bound to the origin, unique per challenge and optionally single-use.** A challenge is now `<unix ms>.<hex nonce>.<hex hmac>` with a random 128-bit nonce, so two challenges never match, and the HMAC covers the web `origin` as well as the `app`. `createChallenge`, `isFreshChallenge`, `verifyLogin` and `loginWithName` take a required `origin` (the app's own, e.g. `https://app.example`); `loginMessage` and `loginProofTx` take one object `{ app, origin, challenge, name? }` and the signed text is `<app> login\nOrigin: <origin>\n[Name: <name>\n]Challenge: <challenge>`. `login()` passes `location.origin` by default (`origin` outside a browser), builds the text itself and signs the `name` when it gets one, so a relayed signature cannot register another name. New optional `consumeChallenge(nonce, expiresAtMs)` on `verifyLogin` / `loginWithName`: when it returns `false` the answer is the new code `challenge_used`; without it a signed login can be replayed for 5 minutes. Challenges in the old format fail with `challenge_invalid`.
@@ -50,6 +61,8 @@
 ## 0.1.0-alpha.2 (2026-10-19)
 
 - **Fix**: `autofill` with `definitions` probed `fee` with a blob lacking `Sequence` and `Fee`, which xahaud answers with `invalidTransaction`; every `PasskeyAdapter` send on Xahau without a preset `Fee` failed. The probe now carries `Sequence: 0` and `Fee: "0"` placeholders.
+
+## 0.1.0-alpha.1 (2026-10-19)
 
 - **`xrp-dev/auth`**: wallet sign-in for apps. `createChallenge` / `isFreshChallenge` (stateless HMAC challenge bound to the app name, 5 min, constant-time compare), `loginMessage`, `verifyMessage`, `loginProofTx` / `verifyProofTx` (an unappliable `AccountSet` memo transaction for wallets that cannot sign messages), `verifyLogin` (server: challenge + signature or proof in one call, returns an address or a failure code) and `login(adapter, { app })` (browser: challenge, sign, post, session cookie).
 - **`xrp-dev/xahau`**: `XAHAU_DEFINITIONS` and `XAHAU_PROTOCOL`, a `server_definitions` snapshot of Xahau (hooks, Import, URIToken, ...). Not re-exported from `.`, so the extra JSON loads only for those who import it.
