@@ -28,9 +28,11 @@ describe("W-E02 Wycheproof", { timeout: 120_000 }, () => {
     let n = 0;
     for (const g of wycheproof.testGroups)
       for (const t of g.tests) {
-        const ok = await run(verify(h(t.sig), h(t.msg), h(g.publicKey.pk)));
-        expect(ok, `tcId ${t.tcId}`).toBe(t.result === "valid");
         n++;
+        const ok = await run(verify(h(t.sig), h(t.msg), h(g.publicKey.pk)));
+        // "acceptable" is Wycheproof's "either answer is fine"; this verifier is strict, so only valid and invalid are pinned.
+        if (t.result === "acceptable") continue;
+        expect(ok, `tcId ${t.tcId}`).toBe(t.result === "valid");
       }
     expect(n).toBe(wycheproof.numberOfTests);
   });

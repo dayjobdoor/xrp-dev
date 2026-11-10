@@ -4,8 +4,7 @@ import { fileURLToPath } from "node:url";
 import { runInWorkerd } from "./workerd.js";
 import { describe, expect, it } from "vite-plus/test";
 import { Wallet as XrplWallet } from "xrpl";
-import { Effect } from "effect";
-import { encode, type TxJson } from "../src/effect/codec.js";
+import type { TxJson } from "../src/effect/codec.js";
 
 const path = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 
@@ -61,16 +60,8 @@ const payment = (account: string): TxJson => ({
   Flags: 0,
 });
 
-// Fixtures the codec encodes byte-for-byte, first 10 of each kind.
-const supported = async (fixtures: { binary: string; json: TxJson }[]) => {
-  const ok: typeof fixtures = [];
-  for (const f of fixtures) {
-    if (ok.length < 10 && (await Effect.runPromise(encode(f.json).pipe(Effect.orElseSucceed(() => "")))) === f.binary) ok.push(f);
-  }
-  // A silent shrink would leave the workerd run checking almost nothing.
-  if (ok.length < 5) throw new Error(`only ${ok.length} fixtures encode byte-for-byte`);
-  return ok;
-};
+// The first 10 fixtures of each kind (W-K01 holds that every fixture encodes byte-for-byte).
+const sample = (fixtures: { binary: string; json: TxJson }[]) => fixtures.slice(0, 10);
 
 describe("P04 workerd", () => {
   it("runner Worker reports no failures", async () => {
@@ -81,7 +72,7 @@ describe("P04 workerd", () => {
       return { seed, tx_blob: w.sign(tx as never).tx_blob };
     });
     const fixtures = JSON.parse(readFileSync(path("./vectors/codec-fixtures.json"), "utf8")) as Record<string, { binary: string; json: TxJson }[]>;
-    const codec = [...(await supported(fixtures.transactions!)), ...(await supported(fixtures.accountState!))];
+    const codec = [...sample(fixtures.transactions!), ...sample(fixtures.accountState!)];
     expect(codec.length).toBeGreaterThan(0);
 
     const body = (await runInWorkerd(bundle(path("./portability/runner.ts")), { payments, codec })) as { failures: string[]; ran: number };

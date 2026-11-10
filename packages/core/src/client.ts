@@ -102,7 +102,8 @@ const resubmitted = (engineResult: string) => engineResult === "tefALREADY" || e
 /**
  * Submits a signed blob and waits until it is in a validated ledger, like xrpl.js' `submitAndWait`. Rejects with
  * `ClientError`: `rejected` when the node refuses it for good (`tem`, `tef`, `tel`), `expired` when the validated ledger
- * passes its `LastLedgerSequence` without it, `timeout` or `aborted`. A `tec` code is a validated outcome, so it resolves:
+ * passes its `LastLedgerSequence` without it, `timeout` or `aborted`. A blob that does not decode rejects with `CodecError`,
+ * before anything is sent. A `tec` code is a validated outcome, so it resolves:
  * check `transaction_result`.
  *
  * `timeoutMs` is one deadline for the whole call: submit, every look at the ledger and every sleep between them. After the

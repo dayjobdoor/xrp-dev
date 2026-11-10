@@ -82,7 +82,7 @@ describe("parseName", () => {
     expect(parseName("abcdef", { max: 5 })).toEqual({ reason: "too_long" });
   });
 
-  it("reserves xrpst's words and the route-like ones", () => {
+  it("reserves the route-like words and keeps every reserved name lower case", () => {
     for (const word of ["api", "auth", "op", "dashboard", "admin", "www", "docs", "login", "logout", "sw", "assets", "vocab"]) expect(RESERVED_NAMES).toContain(word);
     for (const word of RESERVED_NAMES) expect(word).toBe(word.toLowerCase());
   });
@@ -310,9 +310,7 @@ describe("createNameChecker", () => {
       return Response.json({ name, available: !taken.has(name) });
     }) as unknown as typeof fetch;
     const checker = createNameChecker({ fetch: fake, delayMs: 40 });
-    const seen: string[] = [];
-    checker.subscribe(() => seen.push(checker.get().status));
-    return { checker, calls, seen };
+    return { checker, calls };
   };
 
   it("debounces keystrokes into one request and ends on the answer", async () => {

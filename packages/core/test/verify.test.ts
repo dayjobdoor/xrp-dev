@@ -8,6 +8,8 @@ const run = Effect.runPromise;
 const tx = (account: string) => ({ TransactionType: "Payment", Account: account, Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe", Amount: "1", Fee: "12", Sequence: 7, Flags: 0 });
 
 describe("verifyTransaction / signerMatchesAccount", () => {
+  // Not a signer: a multisigned transaction may not name one of its signers as its own Account.
+  const THIRD = "rLNaPoKeeBjZe2qs6x52yVPZpZ8td4dc6w";
   const [a, b] = ["snoPBrXtMeMyMHUVTgbuqAfg1SUTb", "sEdSJHS4oiAdz7w2X2ni1gFiqtbJHqE"].map((s) => XrplWallet.fromSeed(s));
 
   it("single-signed blobs verify and match their account", async () => {
@@ -18,7 +20,7 @@ describe("verifyTransaction / signerMatchesAccount", () => {
   });
 
   it("multisigned: ascending Signers verify; reversed or duplicated do not", async () => {
-    const t = tx("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
+    const t = tx(THIRD);
     const blob = multisign([a!, b!].map((w) => w.sign(t as never, true).tx_blob));
     expect(await run(verifyTransaction(blob))).toBe(true);
     const json = (await run(decode(blob))) as TxJson & { Signers: unknown[] };
@@ -28,10 +30,15 @@ describe("verifyTransaction / signerMatchesAccount", () => {
     expect(await run(verifyTransaction(duplicated))).toBe(false);
   });
 
+  it("multisigned: the transaction's own account may not be a signer", async () => {
+    const blob = multisign([a!, b!].map((w) => w.sign(tx(a!.address) as never, true).tx_blob));
+    expect(await run(verifyTransaction(blob))).toBe(false);
+  });
+
   describe("is false once the blob is tampered with or malformed", () => {
     const single = async () => (await run(decode(a!.sign(tx(a!.address) as never).tx_blob))) as TxJson;
     const multi = async () => {
-      const t = tx("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
+      const t = tx(THIRD);
       return (await run(decode(multisign([a!, b!].map((w) => w.sign(t as never, true).tx_blob))))) as TxJson & { Signers: { Signer: Record<string, unknown> }[] };
     };
 
@@ -61,7 +68,7 @@ describe("verifyTransaction / signerMatchesAccount", () => {
   });
 
   it("multisigned: 32 valid Signers verify, 33 do not (rippled's limit)", async () => {
-    const t = tx("rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh");
+    const t = tx(THIRD);
     const wallets = Array.from({ length: 33 }, (_, i) => XrplWallet.fromEntropy(new Uint8Array(16).fill(i + 1), { algorithm: ECDSA.ed25519 }));
     const blobs = wallets.map((w) => w.sign(t as never, true).tx_blob);
     expect(await run(verifyTransaction(multisign(blobs.slice(0, 32))))).toBe(true);
@@ -77,6 +84,6 @@ describe("publicKeyToAddress", () => {
   });
 
   it.each([`04${"11".repeat(32)}`, "00".repeat(33), "11".repeat(32), `02${"00".repeat(32)}`, "zz", `ED${"FF".repeat(32)}`])("rejects %s", async (key) => {
-    await expect(run(publicKeyToAddress(key))).rejects.toBeDefined();
+    await expect(run(publicKeyToAddress(key))).rejects.toMatchObject({ _tag: "AddressError" });
   });
 });

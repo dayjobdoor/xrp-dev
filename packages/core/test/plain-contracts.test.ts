@@ -123,14 +123,15 @@ describe("codec: a blob that does not decode throws, a blob that decodes but is 
   });
 });
 
-// A Payment that two keys multisign. Signers must be strictly ascending by AccountID, each signing the multisign blob.
+// A Payment that two keys multisign. Signers must be strictly ascending by AccountID, each signing the multisign blob;
+// none of them may be the transaction's own Account.
 const signers = [7, 9].map((fill) => {
   const key = new Uint8Array(32).fill(fill);
   const publicKey = "ED" + bytesToHex(ed25519.getPublicKey(key));
   return { key, publicKey, account: publicKeyToAddress(publicKey) };
 });
 function payment(): TxJson {
-  return { TransactionType: "Payment", Account: signers[0]!.account, Destination: GENESIS, Amount: "1", Fee: "30", Sequence: 1, SigningPubKey: "" };
+  return { TransactionType: "Payment", Account: GENESIS, Destination: signers[0]!.account, Amount: "1", Fee: "30", Sequence: 1, SigningPubKey: "" };
 }
 const entry = (s: (typeof signers)[number]) => ({
   Signer: { Account: s.account, SigningPubKey: s.publicKey, TxnSignature: bytesToHex(ed25519.sign(encodeForMultisigning(payment(), s.account), s.key)) },

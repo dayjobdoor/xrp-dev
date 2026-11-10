@@ -63,8 +63,8 @@ const verifyBytes = (signature: Uint8Array, data: Uint8Array, publicKey: Uint8Ar
 /**
  * True when the blob is signed the way rippled requires and every signature verifies. Single-signed: non-empty
  * `SigningPubKey` and `TxnSignature`, no `Signers`. Multisigned: empty `SigningPubKey`, no `TxnSignature`, 1 to 32
- * `Signers` (rippled's limit) strictly ascending by AccountID (so unique), and each entry verifies against its own
- * key. Anything else is false, except a blob that does not decode, which throws `CodecError`.
+ * `Signers` (rippled's limit) strictly ascending by AccountID (so unique), none of them the transaction's own `Account`,
+ * and each entry verifies against its own key. Anything else is false, except a blob that does not decode, which throws `CodecError`.
  * It does not check that the key is authorised for `Account` (see `signerMatchesAccount`).
  */
 export const verifyTransaction = (blob: string, defs: Definitions = XRPL_DEFINITIONS): boolean => {
@@ -85,6 +85,7 @@ export const verifyTransaction = (blob: string, defs: Definitions = XRPL_DEFINIT
     const s = isRecord(entry) && isRecord(entry.Signer) ? entry.Signer : undefined;
     if (!s || typeof s.Account !== "string") return false;
     const account = s.Account;
+    if (account === rest.Account) return false; // rippled: "The account owner may not multisign for themselves"
     const id = bytesToHex(orEmpty(() => decodeAccountId(account)));
     if (id <= previous) return false; // also rejects an undecodable (empty) account
     previous = id;

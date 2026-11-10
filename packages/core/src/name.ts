@@ -14,8 +14,8 @@ export const NAME_MIN = 3;
 export const NAME_MAX = 20;
 
 /**
- * Names no one can take because they are (or may become) a path, an auth/ops word or a brand. Includes xrpst's list
- * (`/:name` is its Payment Pointer namespace next to `/auth` and `/op`). Apps add their own routes through `rules.reserved`.
+ * Names no one can take because they are (or may become) a path, an auth/ops word or a brand. Includes the words of a `/:name`
+ * Payment Pointer namespace that sits next to `/auth` and `/op`. Apps add their own routes through `rules.reserved`.
  */
 export const RESERVED_NAMES: readonly string[] = Object.freeze([
   "about", "account", "accounts", "admin", "administrator", "api", "app", "assets", "auth", "billing", "blog", "callback", "challenge",

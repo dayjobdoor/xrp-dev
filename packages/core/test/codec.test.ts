@@ -42,7 +42,7 @@ const payment = (extra: TxJson = {}): TxJson => ({
 
 const fixtures = JSON.parse(readFileSync(new URL("./vectors/codec-fixtures.json", import.meta.url), "utf8")) as Record<string, { binary: string; json: TxJson }[]>;
 
-// Fixtures whose JSON has a Number or Int32 field or an MPT amount/issue: the ones an earlier codec could not handle.
+// Fixtures whose JSON has a Number or Int32 field or an MPT amount/issue: the types that need their own serialization.
 const fieldTypes = new Map<string, string>((definitions.FIELDS as unknown as [string, { type: string }][]).map(([n, f]) => [n, f.type]));
 const usesNumberOrMpt = (x: unknown): boolean =>
   Array.isArray(x)
@@ -750,7 +750,7 @@ describe("W-K16 MPT amounts and issues", () => {
     expect(await run(decode(out))).toEqual(asset);
   });
 
-  it("XRP and issued-currency issues are unchanged and rejected shapes still fail", async () => {
+  it("XRP and issued-currency issues encode as before and rejected shapes fail", async () => {
     for (const asset of [{ currency: "XRP" }, { currency: "USD", issuer: BOB }]) {
       const out = await run(encode({ Asset: asset }));
       expect(out).toBe(oracle.encode({ Asset: asset }));
@@ -761,7 +761,7 @@ describe("W-K16 MPT amounts and issues", () => {
   });
 });
 
-describe("W-K17 real transactions of the newer families", () => {
+describe("W-K17 hand-built transactions of the newer families", () => {
   const ID = `0000012A${bytesToHex(decodeAccountID(ALICE))}`;
   const HASH = "CAFEBABE".repeat(8);
   const base = { Account: ALICE, Fee: "10", Sequence: 5, Flags: 0, SigningPubKey: PUBKEY };

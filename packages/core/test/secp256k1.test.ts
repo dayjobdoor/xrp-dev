@@ -198,7 +198,7 @@ interface WycheproofTest { tcId: number; comment: string; msg: string; sig: stri
 interface WycheproofGroup { publicKey: { uncompressed: string }; tests: WycheproofTest[] }
 
 describe("W-E02 Wycheproof ecdsa_secp256k1_sha256", { timeout: SLOW }, () => {
-  const file = JSON.parse(readFileSync(new URL("./vectors/wycheproof/ecdsa_secp256k1_sha256_test.json", import.meta.url), "utf8")) as { testGroups: WycheproofGroup[] };
+  const file = JSON.parse(readFileSync(new URL("./vectors/wycheproof/ecdsa_secp256k1_sha256_test.json", import.meta.url), "utf8")) as { numberOfTests: number; testGroups: WycheproofGroup[] };
 
   it("matches every vector (valid high-S expected false; acceptable either way)", async () => {
     const seen = { valid: 0, invalid: 0, acceptable: 0, highS: 0 };
@@ -218,8 +218,7 @@ describe("W-E02 Wycheproof ecdsa_secp256k1_sha256", { timeout: SLOW }, () => {
         expect(got, `tcId ${t.tcId}: ${t.comment}`).toBe(t.result === "valid" && !highS);
       }
     }
-    console.log("wycheproof", seen);
-    expect(seen.valid + seen.invalid + seen.acceptable).toBeGreaterThan(400);
+    expect(seen.valid + seen.invalid + seen.acceptable).toBe(file.numberOfTests);
   });
 });
 
