@@ -3,7 +3,7 @@ node = "24"
 bun = "1.4"
 
 [tasks.check]
-description = "Everything CI runs, in order"
+description = "The commands of CI's `check` job, in order"
 run = ["bun run lint", "bun run typecheck", "bun run test", "bun run test:bun", "bun run check"]
 
 [tasks.dryrun]

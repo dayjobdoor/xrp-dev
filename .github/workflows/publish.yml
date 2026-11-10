@@ -40,17 +40,21 @@ jobs:
           # A prerelease never goes to latest: 0.1.0-alpha.1 -> dist-tag alpha; any other prerelease id (0-, RC.1, 1.beta) -> next.
           case "$version" in
             *-*)
-              alpha=$(printf '%s' "$version" | sed -nE 's/^[^-]+-([a-z]+)([.-].*)?$/\1/p')
-              tag=${alpha:-next}
+              id=$(printf '%s' "$version" | sed -nE 's/^[^-]+-([a-z]+)([.-].*)?$/\1/p')
+              case "$id" in alpha|beta) tag=$id ;; *) tag=next ;; esac
               ;;
             *) tag=latest ;;
           esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           # Exact-version check: comparing against `latest` alone would mis-skip prereleases and re-runs.
+          # The tag is also checked: right after a publish the registry can lag, and a second run would plan the same release again.
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "npm already has $name@$version: nothing to publish"
+          elif [ -n "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "tag v$version already exists: $name@$version was released, the registry has not caught up"
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
             echo "will publish $name@$version"
@@ -73,10 +77,9 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - run: bun install --frozen-lockfile
+      - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
-        env:
-          CI: "true"
       - run: bun run test:bun
       - run: bun run check
         env:

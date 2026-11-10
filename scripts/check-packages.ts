@@ -11,6 +11,9 @@ import { basename, join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const PACKAGES = ["core"];
+// The four sources ship as one version: the bin inlines mcp's, wallet depends on core's, and `publish.yml` reads core's alone.
+const versions = await Promise.all(["core", "wallet", "mcp", "x402"].map(async (dir) => [dir, (await Bun.file(join(ROOT, "packages", dir, "package.json")).json()).version as string] as const));
+if (new Set(versions.map(([, v]) => v)).size !== 1) throw new Error(`packages/*/package.json versions differ: ${versions.map(([d, v]) => `${d} ${v}`).join(", ")}`);
 // Peers the consumer must provide (optional ones included, so every entry point resolves its types), at the
 // versions this repo tests with. Why not a range: it would re-resolve on every run, so a new upstream release
 // could break, or compromise, a publish. node_modules is what bun.lock pins.
@@ -44,7 +47,7 @@ try {
     console.log(`\n== ${pkg.name}`);
     await $`bunx --bun publint@0.3.25 ${tgz} --strict`;
     await $`bunx @arethetypeswrong/cli@0.18.5 ${tgz} --profile esm-only --ignore-rules cjs-resolves-to-esm`;
-    // `bun pm pack` keeps a manifest as written; `npm publish` rewrites it (it once dropped `bin` for a "./" path), so ask npm.
+    // `bun pm pack` keeps a manifest as written but `npm publish` rewrites it (it drops a `bin` given as "./path"), so ask npm.
     // Only the rewrite notice fails the check: a registry or network error here says nothing about the manifest.
     const dry = await $`npm publish --dry-run --tag check ${tgz} 2>&1`.cwd(cwd).nothrow().text();
     if (dry.includes("auto-corrected")) throw new Error(`npm would rewrite ${pkg.name}'s package.json (run \`npm pkg fix\`):\n${dry}`);

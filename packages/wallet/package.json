@@ -39,6 +39,7 @@
     "ripple-keypairs": "^3.1.0",
     "vite": "catalog:",
     "vite-plus": "catalog:",
+    "workerd": "1.20261108.1",
     "xrpl": "^5.3.0",
     "xrpl-connect": "1.0.0"
   },

@@ -8,7 +8,7 @@ updates:
   - package-ecosystem: bun
     directory: /
     schedule: { interval: weekly }
-    # Pinned twice (devDependencies and the root `overrides` vite alias); Dependabot would bump only one. Bump by hand.
+    # `vite` (the vite-plus-core alias) and `vite-plus` are pinned together in the root `catalog`; Dependabot would bump only one. Bump by hand.
     ignore:
       - dependency-name: vite-plus
       - dependency-name: "@voidzero-dev/*"

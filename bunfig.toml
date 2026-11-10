@@ -1,6 +1,6 @@
 [install]
-# Hoisted: tools such as Vite+ and Alchemy resolve their transitive packages from the root
-# `node_modules`, which the isolated linker does not populate.
+# Hoisted: Vite+ resolves its transitive packages from the root `node_modules`, which the isolated linker does not
+# populate, and `scripts/check-packages.ts` reads the peers' and `effect`'s locked versions from there.
 linker = "hoisted"
 
 [test]

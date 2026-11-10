@@ -4,9 +4,18 @@
   "codec": 120782,
   "auth": 124227,
   "name": 3873,
+  "name-server": 145475,
+  "xahau": 80525,
   "client": 118192,
   "index": 172377,
+  "effect/index": 151171,
+  "effect/crypto": 79226,
+  "effect/address": 80164,
+  "effect/codec": 137076,
+  "effect/client": 85006,
   "wallet/index": 126878,
   "wallet/effect": 145621,
-  "wallet/passkey": 167693
+  "wallet/passkey": 167693,
+  "mcp/index": 238341,
+  "x402/index": 14444
 }

@@ -58,7 +58,6 @@
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@types/bun": "^1.4.4",
     "@types/node": "26.6.6",
     "xrp-dev-wallet": "workspace:*",
     "effect": "^4.1.2"
