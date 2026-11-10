@@ -47,6 +47,7 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) 
 /**
  * One JSON-RPC message in, the reply out; `undefined` for a notification, which gets no reply.
  * An array is a batch (2025-03-26 requires them): replies come back as an array, without the notifications' entries.
+ * A batch holds 1 to 20 messages (an empty or longer one gets a single -32600 reply, not an array) and runs 4 of them at a time.
  * Implements initialize, ping, tools/list and tools/call: all an MCP client needs from a tools-only server.
  */
 export async function handleJsonRpc<D extends Deps>(
