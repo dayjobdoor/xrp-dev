@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-alpha.7 (unreleased)
+## 0.1.0-alpha.7 (2026-11-14)
 
 - **Fix (`xrp-dev/x402`)**: a gate mounted twice on one route (say on `*` and on `/r`) settled a payment twice; it now settles once. `chargeOnDelivery` on a route that the same gate already settles as middleware throws an error that says so; before, it answered `unknown_invoice_id` after the payment was taken. `scheme: "upto"` throws at construction; before, every request, a CORS preflight included, got a 500.
 - **Fix (`xrp-dev/auth`)**: `verifyLogin` no longer reads a clock override from its argument. The README example spread the request body into it, so a body carrying `now` could replay an expired challenge for as long as it liked; the example now names the fields it takes, and `verifyLogin` ignores anything but `app` and `origin` when it opens the challenge. Do not spread a request body into `verifyLogin`; pass `challenge`, `signature`, `publicKey`, `proof` and `name` by name.
