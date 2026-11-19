@@ -20,7 +20,7 @@ XRPL SDK for workerd, Bun, browsers and Node, published as one npm package, `xrp
 
 ## Verify
 
-`mise run check` is the gate (its tasks are in `mise.toml`; the `check` job of `ci.yml` and the `verify` job of `publish.yml` run the same commands; `ci.yml` also has a `changelog` job and a run of the packed tarball on Node 20.19, and is manual-only while GitHub billing blocks runs). It also packs the tarball, runs publint and attw, installs it into a throwaway project and runs the consumer probe (`scripts/check-packages.ts`).
+`mise run check` is the gate (its tasks are in `mise.toml`; the `check` job of `ci.yml` and the `verify` job of `publish.yml` run the same commands; `ci.yml` also has a `changelog` job and a run of the packed tarball on Node 20.19). It also packs the tarball, runs publint and attw, installs it into a throwaway project and runs the consumer probe (`scripts/check-packages.ts`).
 
 `bun run build` builds core, wallet, mcp and x402 and assembles them (also what `prepare` runs). `bun.lock` and the hoisted linker (`bunfig.toml`) are required: `check-packages.ts` reads the peers' and `effect`'s locked versions (an `effect` override pins the consumer) from the root `node_modules`.
 

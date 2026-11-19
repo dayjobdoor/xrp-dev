@@ -1,7 +1,9 @@
 name: CI
 
 on:
-  # manual only while GitHub billing blocks runs; restore pull_request / push (main) once it is fixed
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  # Pull requests only (the workflow is manual while billing blocks runs): a change to a package's src/ carries a CHANGELOG.md entry.
+  # Pull requests only: a change to a package's src/ carries a CHANGELOG.md entry.
   changelog:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
