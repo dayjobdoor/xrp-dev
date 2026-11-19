@@ -55,7 +55,7 @@
   "devDependencies": {
     "@types/node": "26.6.6",
     "fast-check": "^4.10.2",
-    "workerd": "1.20261108.1",
+    "workerd": "1.20261114.1",
     "ripple-address-codec": "^5.0.1",
     "ripple-binary-codec": "^2.11.0",
     "ripple-keypairs": "^3.1.0",
