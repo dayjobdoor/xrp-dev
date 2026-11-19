@@ -2,6 +2,10 @@
 node = "24"
 bun = "1.4"
 
+# Overrides a global `lockfile_platforms`, which would rewrite mise.lock down to the listed platforms on every install.
+[settings]
+lockfile_platforms = ["linux-arm64", "linux-x64", "macos-arm64", "macos-x64"]
+
 [tasks.check]
 description = "The commands of CI's `check` job, in order"
 run = ["bun run lint", "bun run typecheck", "bun run test", "bun run test:bun", "bun run check"]
