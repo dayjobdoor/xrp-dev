@@ -37,8 +37,10 @@ jobs:
           version=$(node -p "require('./packages/core/package.json').version")
           grep -q "^## $version " CHANGELOG.md || { echo "CHANGELOG.md has no entry for $version"; exit 1; }
           if grep "^## $version " CHANGELOG.md | grep -qi unreleased; then echo "CHANGELOG.md heading for $version still says unreleased: add the date"; exit 1; fi
-          # A prerelease never goes to latest: 0.1.0-alpha.1 -> dist-tag alpha; any other prerelease id (0-, RC.1, 1.beta) -> next.
+          # Until 1.0 every release goes to latest, so `npm i xrp-dev` gets the newest one. From 1.0 a prerelease never does:
+          # 1.1.0-alpha.1 -> dist-tag alpha; any other prerelease id (1.1.0-0, -RC.1, -1.beta) -> next.
           case "$version" in
+            0.*) tag=latest ;;
             *-*)
               id=$(printf '%s' "$version" | sed -nE 's/^[^-]+-([a-z]+)([.-].*)?$/\1/p')
               case "$id" in alpha|beta) tag=$id ;; *) tag=next ;; esac
@@ -134,7 +136,6 @@ jobs:
       - name: Tag and release
         env:
           VERSION: ${{ needs.plan.outputs.version }}
-          TAG: ${{ needs.plan.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then echo "v$VERSION already tagged: nothing to release"; exit 0; fi
@@ -144,5 +145,5 @@ jobs:
           git push origin "refs/tags/v$VERSION"
           # Notes = this version's CHANGELOG section; a prerelease is flagged so it never shows as "Latest".
           awk -v h="## $VERSION " 'index($0,h)==1{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
-          [ "$TAG" = latest ] && flag="" || flag="--prerelease"
+          case "$VERSION" in *-*) flag="--prerelease" ;; *) flag="" ;; esac
           gh release create "v$VERSION" "./pack/xrp-dev-$VERSION.tgz" --verify-tag --title "xrp-dev v$VERSION" --notes-file notes.md $flag

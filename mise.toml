@@ -13,4 +13,4 @@ run = ["bun run lint", "bun run typecheck", "bun run test", "bun run test:bun", 
 [tasks.dryrun]
 description = "What `npm publish` would upload (no login, no upload)"
 depends = ["check"]
-run = "cd packages/core && npm publish --dry-run --tag alpha"
+run = "cd packages/core && npm publish --dry-run --tag latest"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-alpha.8 (unreleased)
+
+- **Release**: until 1.0 every release is published to the npm dist-tag `latest`, so `npm i xrp-dev` installs the newest one; it stayed on `0.1.0-alpha.0`. The `alpha` dist-tag stops moving at `0.1.0-alpha.7`.
+
 ## 0.1.0-alpha.7 (2026-11-14)
 
 - **Fix (`xrp-dev/x402`)**: a gate mounted twice on one route (say on `*` and on `/r`) settled a payment twice; it now settles once. `chargeOnDelivery` on a route that the same gate already settles as middleware throws an error that says so; before, it answered `unknown_invoice_id` after the payment was taken. `scheme: "upto"` throws at construction; before, every request, a CORS preflight included, got a 500.

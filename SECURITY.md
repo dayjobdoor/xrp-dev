@@ -4,7 +4,7 @@
 
 ## Supported versions
 
-Only the latest `alpha` release (see `npm view xrp-dev dist-tags`). Fixes ship as a new prerelease.
+Only the newest release (dist-tag `latest`; see `npm view xrp-dev dist-tags`). Fixes ship as a new prerelease.
 
 ## Reporting a vulnerability
 
