@@ -60,6 +60,6 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "26.6.6",
     "xrp-dev-wallet": "workspace:*",
-    "effect": "^4.1.4"
+    "effect": "^4.1.5"
   }
 }
