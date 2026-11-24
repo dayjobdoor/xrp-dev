@@ -13,7 +13,7 @@
     "prepare": "bun run build && (git rev-parse --git-dir >/dev/null 2>&1 && [ -z \"$(git config core.hooksPath)\" ] && git config core.hooksPath .githooks || true)"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.4",
+    "@types/bun": "^1.4.5",
     "@types/node": "26.6.6",
     "typescript": "^7.0.2",
     "vite": "catalog:",
